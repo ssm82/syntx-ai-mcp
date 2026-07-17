@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "syntx-ai": {
+      "command": "node",
+      "args": ["./dist/bin/cli.js"],
+      "env": {
+        "SYNTX_TOKEN": "YOUR_SYNTX_AI_TOKEN",
+        "SYNTX_LANG": "en",
+        "MCP_TRANSPORT": "stdio"
+      }
+    }
+  }
+}

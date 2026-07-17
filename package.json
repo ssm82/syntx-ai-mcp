@@ -1,0 +1,75 @@
+{
+  "name": "syntx-ai-mcp",
+  "version": "0.1.0",
+  "description": "MCP server and TypeScript SDK for the syntx.ai AI platform",
+  "license": "MIT",
+  "author": "syntx-ai-mcp contributors",
+  "homepage": "https://github.com/syntx-ai/syntx-ai-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/syntx-ai/syntx-ai-mcp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/syntx-ai/syntx-ai-mcp.git"
+  },
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "syntx-mcp": "dist/bin/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/server.d.ts",
+      "import": "./dist/mcp/server.mjs",
+      "require": "./dist/mcp/server.js"
+    },
+    "./bin": {
+      "types": "./dist/bin/cli.d.ts",
+      "import": "./dist/bin/cli.mjs",
+      "require": "./dist/bin/cli.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts src/bin/cli.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts src/bin/cli.ts --format cjs,esm --dts --watch",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/bin/cli.js",
+    "start:stdio": "node dist/bin/cli.js --transport stdio",
+    "start:http": "node dist/bin/cli.js --transport http"
+  },
+  "keywords": [
+    "syntx",
+    "syntx-ai",
+    "ai",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "cursor",
+    "sdk",
+    "api",
+    "typescript"
+  ],
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
