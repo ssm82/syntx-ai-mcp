@@ -4,13 +4,13 @@
   "description": "MCP server and TypeScript SDK for the syntx.ai AI platform",
   "license": "MIT",
   "author": "syntx-ai-mcp contributors",
-  "homepage": "https://github.com/syntx-ai/syntx-ai-mcp#readme",
+  "homepage": "https://github.com/ssm82/syntx-ai-mcp#readme",
   "bugs": {
-    "url": "https://github.com/syntx-ai/syntx-ai-mcp/issues"
+    "url": "https://github.com/ssm82/syntx-ai-mcp/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/syntx-ai/syntx-ai-mcp.git"
+    "url": "git+https://github.com/ssm82/syntx-ai-mcp.git"
   },
   "main": "dist/index.js",
   "module": "dist/index.mjs",
