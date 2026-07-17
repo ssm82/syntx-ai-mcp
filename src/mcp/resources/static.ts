@@ -38,11 +38,42 @@ export const staticResources: SyntxResource[] = [
   {
     uri: 'syntx://settings',
     name: 'Application Settings',
-    description: 'OAuth providers, available AI list, country code, and client IP.',
+    description:
+      'Remote application settings (OAuth providers, AI list, country, IP) merged ' +
+      'with the local MCP server configuration (default AI, default model, transport).',
     mimeType: 'application/json',
     async read(ctx) {
-      const settings = await ctx.syntx.settings.get();
-      return { contents: [{ uri: 'syntx://settings', mimeType: 'application/json', text: JSON.stringify(settings, null, 2) }] };
+      let remote: unknown = null;
+      let remoteError: string | null = null;
+      try {
+        remote = await ctx.syntx.settings.get();
+      } catch (err) {
+        // Stay best-effort: if the upstream is unreachable the local config
+        // is still useful on its own. Surface the error for diagnostics.
+        remoteError = err instanceof Error ? err.message : String(err);
+      }
+      const cfg = ctx.config;
+      const local = {
+        baseURL: cfg.baseURL,
+        wsURL: cfg.wsURL,
+        lang: cfg.lang,
+        defaultAI: cfg.defaultAI,
+        defaultModel: cfg.defaultModel ?? null,
+        streamMode: cfg.streamMode,
+        transport: cfg.transport,
+        httpPort: cfg.httpPort,
+        authenticated: ctx.syntx.auth.isAuthenticated(),
+      };
+      const payload = { remote, remoteError, local };
+      return {
+        contents: [
+          {
+            uri: 'syntx://settings',
+            mimeType: 'application/json',
+            text: JSON.stringify(payload, null, 2),
+          },
+        ],
+      };
     },
   },
   {

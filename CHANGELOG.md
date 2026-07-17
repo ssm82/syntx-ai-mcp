@@ -9,12 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial public release of the MCP server and TypeScript SDK for syntx.ai.
-- 19 MCP tools covering identity, AI catalog, chats/messaging, image
-  generation, account, and file management.
+- 22 MCP tools covering identity, runtime settings, AI catalog,
+  chats/messaging, image generation, account, and file management.
 - 6 resources + 1 resource template (models, plans, user, settings, …).
 - 4 prompt templates (`generate-landing`, `summarize-chat`, `translate`,
   `code-review`).
 - Dual stdio and HTTP/SSE transports.
+- Runtime settings tools: `get-settings`, `set-default-model`,
+  `set-default-ai`. The default model and AI provider can now be changed
+  via MCP without restarting the server.
+- `syntx://settings` resource now also surfaces the live MCP server
+  configuration alongside the remote `AppSettings` payload.
 
 ### Security
 - New `upload-files` tool for path- and base64-based file uploads (no

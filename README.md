@@ -64,11 +64,11 @@
 
 | Группа | Что входит |
 |---|---|
-| 🛠️ **19 инструментов** | Идентификация, чаты, генерация, каталог, аккаунт, файлы |
+| 🛠️ **22 инструмента** | Идентификация, runtime-настройки, чаты, генерация, каталог, аккаунт, файлы |
 | 📄 **6 ресурсов** + 1 шаблон | `syntx://models`, `syntx://plans`, `syntx://user/me`, … |
 | 💡 **4 промпт-шаблона** | generate-landing, summarize-chat, translate, code-review |
 | 🔌 **2 транспорта** | stdio (по умолчанию) и stateless HTTP/SSE |
-| 🔐 **Runtime-токен** | Задавайте токен через env **или** инструментом `set-token` |
+| 🔐 **Runtime-настройки** | Задавайте токен, AI-провайдера и модель по умолчанию без перезапуска (`set-token`, `set-default-ai`, `set-default-model`) |
 | 🧱 **Типобезопасность** | Полная типизация TypeScript, JSON Schema для каждого инструмента |
 | 🌐 **Dual-формат** | Сборка CJS + ESM + `.d.ts` |
 
@@ -273,6 +273,14 @@ npx syntx-ai-mcp --transport http --http-port 8080
 | `set-token` | Установить/заменить токен в рантайме | `token`* |
 | `validate-token` | Проверить валидность текущего токена | — |
 
+### Настройки (runtime)
+
+| Инструмент | Описание | Параметры |
+|---|---|---|
+| `get-settings` | Текущая эффективная конфигурация сервера | — |
+| `set-default-model` | Установить модель по умолчанию (или очистить через `null`); опционально меняет AI-провайдера | `model`*, `ai_name?` |
+| `set-default-ai` | Переключить AI-провайдера по умолчанию | `ai_name`* |
+
 > `*` — обязательный параметр.
 
 ### Каталог AI
@@ -331,6 +339,18 @@ npx syntx-ai-mcp --transport http --http-port 8080
     "model_type": "gpt-5-mini"
   }
 }
+```
+
+**Пример установки модели по умолчанию:**
+
+```json
+{ "name": "set-default-model", "arguments": { "model": "gpt-5-mini", "ai_name": "chatgpt" } }
+```
+
+После этого любой вызов `ask` / `send-message` без явного `model_type` будет использовать установленную модель. Проверить состояние:
+
+```json
+{ "name": "get-settings", "arguments": {} }
 ```
 
 ### Генерация изображений
@@ -404,7 +424,7 @@ npx syntx-ai-mcp --transport http --http-port 8080
 | `syntx://models` | AI Models Catalog | Полный каталог моделей с ограничениями |
 | `syntx://ai-services` | AI Services | Доступные AI-сервисы |
 | `syntx://plans` | Subscription Plans | Тарифные планы |
-| `syntx://settings` | Application Settings | OAuth-провайдеры, страна, IP |
+| `syntx://settings` | Application Settings | OAuth-провайдеры, страна, IP + локальная конфигурация MCP-сервера (`defaultAI`, `defaultModel`, transport) |
 | `syntx://user/me` | Current User Profile | Профиль текущего пользователя |
 | `syntx://user/balance` | Token Balance | Баланс токенов |
 

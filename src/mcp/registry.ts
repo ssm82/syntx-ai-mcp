@@ -45,10 +45,31 @@ export type SyntxToolResult = CallToolResult;
 export interface McpContext {
   /** Active SyntxClient. Token can be swapped at runtime via `setToken`. */
   readonly syntx: import('../syntx-client').SyntxClient;
-  /** Resolved server configuration (read-only snapshot). */
+  /**
+   * Resolved server configuration (live, read-only snapshot).
+   *
+   * The underlying store is mutable via the `setDefaultModel` / `setDefaultAI`
+   * mutators below, so consumers must treat the returned reference as a
+   * snapshot of the *current* effective values — re-reading it on each
+   * call site is the safe pattern.
+   */
   readonly config: Readonly<import('../config').McpServerConfig>;
   /** Replace the active token (propagates to the underlying client). */
   setToken(token: string | undefined): void;
+  /**
+   * Install a new default model at runtime.
+   *
+   * Pass `null` to clear `defaultModel` (falling back to whatever the tool
+   * caller specified). Subsequent tool invocations that read `ctx.config.defaultModel`
+   * will see the updated value.
+   */
+  setDefaultModel(model: string | null): void;
+  /**
+   * Switch the default AI provider at runtime (e.g. `"chatgpt"`, `"claude"`,
+   * `"midjourney"`). Affects subsequent tool invocations that fall back to
+   * `ctx.config.defaultAI` when the caller omits `ai_name`.
+   */
+  setDefaultAI(ai: string): void;
   /**
    * Send a `notifications/progress` frame to the client if it supplied a
    * `progressToken` for this request. No-op when the client opted out.

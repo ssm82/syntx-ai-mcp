@@ -6,8 +6,13 @@ import type { McpContext, SyntxToolExtra } from './registry';
  * Build the shared {@link McpContext} for a server instance.
  *
  * The context owns the single {@link SyntxClient} used by every tool/resource,
- * and exposes a runtime token mutator so the `set-token` tool can re-credential
- * without rebuilding the server.
+ * and exposes runtime mutators so the `set-token` and `set-default-*` tools
+ * can re-credential / re-configure the server without rebuilding it.
+ *
+ * `config` is a *live, mutable* object internally, but the public field is
+ * typed `Readonly<McpServerConfig>` — callers should always go through the
+ * provided mutators (`setDefaultModel`, `setDefaultAI`) rather than mutating
+ * the object directly.
  */
 export function createMcpContext(config: McpServerConfig): McpContext {
   const syntx = new SyntxClient({
@@ -21,6 +26,14 @@ export function createMcpContext(config: McpServerConfig): McpContext {
     config,
     setToken(token) {
       syntx.auth.setToken(token ?? '');
+    },
+    setDefaultModel(model) {
+      // Mutating the live object: downstream tools reading `ctx.config.defaultModel`
+      // pick up the new value on their next invocation.
+      (config as { defaultModel?: string }).defaultModel = model ?? undefined;
+    },
+    setDefaultAI(ai) {
+      (config as { defaultAI: string }).defaultAI = ai;
     },
     // sendProgress / sendLog are wired per-request by `createMcpServer` via
     // the request extra — see `mcp/server.ts`. They are declared as optional
