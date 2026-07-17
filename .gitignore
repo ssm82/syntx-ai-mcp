@@ -44,3 +44,4 @@ Desktop.ini
 # Local-only files (do not commit — but keep them on disk in `other/` if needed)
 kilo.json
 other/
+.kilo/
