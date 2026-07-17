@@ -62,6 +62,8 @@ export const staticResources: SyntxResource[] = [
         streamMode: cfg.streamMode,
         transport: cfg.transport,
         httpPort: cfg.httpPort,
+        httpHostname: cfg.httpHostname,
+        httpAuthEnabled: !!cfg.httpToken,
         authenticated: ctx.syntx.auth.isAuthenticated(),
       };
       const payload = { remote, remoteError, local };

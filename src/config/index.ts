@@ -24,6 +24,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
     pollTimeout: parseNumber(env[ENV_KEYS.pollTimeout], DEFAULT_CONFIG.pollTimeout),
     transport: parseTransport(env[ENV_KEYS.transport], DEFAULT_CONFIG.transport),
     httpPort: parseNumber(env[ENV_KEYS.httpPort], DEFAULT_CONFIG.httpPort),
+    httpHostname: env[ENV_KEYS.httpHostname] || DEFAULT_CONFIG.httpHostname,
+    httpToken: env[ENV_KEYS.httpToken] || undefined,
     streamMode: parseStreamMode(env[ENV_KEYS.streamMode], DEFAULT_CONFIG.streamMode),
     wsURL: env[ENV_KEYS.wsURL] || DEFAULT_CONFIG.wsURL,
   };

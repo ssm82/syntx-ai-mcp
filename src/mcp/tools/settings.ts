@@ -38,6 +38,8 @@ export const settingsTools: SyntxTool[] = [
           pollTimeout: cfg.pollTimeout,
           transport: cfg.transport,
           httpPort: cfg.httpPort,
+          httpHostname: cfg.httpHostname,
+          httpAuthEnabled: !!cfg.httpToken,
           streamMode: cfg.streamMode,
           wsURL: cfg.wsURL,
           authenticated: ctx.syntx.auth.isAuthenticated(),
@@ -54,15 +56,17 @@ export const settingsTools: SyntxTool[] = [
       'Install a new default AI model at runtime. Subsequent chat tools that omit ' +
       '`model_type` will use this value. Pass `null` for `model` to clear the override ' +
       '(revert to whatever the tool caller specifies). Optionally pass `ai_name` to ' +
-      'switch the default provider in the same call (e.g. {"model": "gpt-5-mini", ' +
-      '"ai_name": "chatgpt"}).',
+      'switch the default provider in the same call. Use the `list-models` tool to ' +
+      'discover valid `model_type` values for a given provider ' +
+      '(example: {"model": "gpt-5-mini-2025-08-07", "ai_name": "chatgpt"}).',
     inputSchema: {
       type: 'object',
       properties: {
         model: {
           type: 'string',
           description:
-            'Model identifier as accepted by syntx.ai (e.g. "gpt-5-mini"). Pass null to clear.',
+            'Model identifier as accepted by syntx.ai (run `list-models` to discover valid ' +
+            'values, e.g. "gpt-5-mini-2025-08-07"). Pass null to clear.',
           nullable: true,
         },
         ai_name: {

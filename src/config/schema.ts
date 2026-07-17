@@ -32,6 +32,18 @@ export interface McpServerConfig {
   /** Port for the HTTP transport. */
   httpPort: number;
   /**
+   * Hostname the HTTP transport binds to. Defaults to `127.0.0.1` (loopback)
+   * for safety. Set to `0.0.0.0` only behind a reverse proxy / firewall.
+   */
+  httpHostname: string;
+  /**
+   * Optional bearer token that MCP clients must present to the HTTP transport
+   * itself (separate from the syntx.ai API token). When set, requests without
+   * a matching `Authorization: Bearer <token>` header are rejected with 401.
+   * When unset, the transport is loopback-only and prints a security warning.
+   */
+  httpToken?: string;
+  /**
    * Default streaming strategy for chat tools.
    *  - `'auto'`   — try WSS, fall back to REST polling on error
    *  - `'stream'` — WSS only (failures surface to the caller)
@@ -53,6 +65,7 @@ export const DEFAULT_CONFIG: McpServerConfig = {
   pollTimeout: 600000,
   transport: 'stdio',
   httpPort: 3000,
+  httpHostname: '127.0.0.1',
   streamMode: 'auto',
   wsURL: 'wss://api.syntx.ai/api/v1',
 };
@@ -69,6 +82,8 @@ export const ENV_KEYS = {
   pollTimeout: 'SYNTX_POLL_TIMEOUT',
   transport: 'MCP_TRANSPORT',
   httpPort: 'MCP_HTTP_PORT',
+  httpHostname: 'MCP_HTTP_HOSTNAME',
+  httpToken: 'MCP_HTTP_TOKEN',
   streamMode: 'SYNTX_STREAM_MODE',
   wsURL: 'SYNTX_WS_URL',
 } as const;

@@ -74,7 +74,7 @@ Environment variables:
   SYNTX_TOKEN, SYNTX_BASE_URL, SYNTX_TIMEOUT, SYNTX_LANG,
   SYNTX_DEFAULT_AI, SYNTX_DEFAULT_MODEL,
   SYNTX_POLL_INTERVAL, SYNTX_POLL_TIMEOUT,
-  MCP_TRANSPORT, MCP_HTTP_PORT
+  MCP_TRANSPORT, MCP_HTTP_PORT, MCP_HTTP_HOSTNAME, MCP_HTTP_TOKEN
 `.trim();
 
 async function main(): Promise<void> {
@@ -105,7 +105,10 @@ async function main(): Promise<void> {
   const serverFactory = () => createMcpServer(config).server;
 
   try {
-    await runTransport(serverFactory, config.transport, config.httpPort);
+    await runTransport(serverFactory, config.transport, config.httpPort, {
+      hostname: config.httpHostname,
+      httpToken: config.httpToken,
+    });
   } catch (err) {
     console.error(
       `[syntx-mcp] Failed to start ${config.transport} transport:`,
@@ -115,8 +118,11 @@ async function main(): Promise<void> {
   }
 
   if (config.transport === 'http') {
-    console.log(`[syntx-mcp] HTTP transport listening on http://127.0.0.1:${config.httpPort}/mcp`);
+    console.log(`[syntx-mcp] HTTP transport listening on http://${config.httpHostname}:${config.httpPort}/mcp`);
     console.log('[syntx-mcp] Health check at /health');
+    if (config.httpToken) {
+      console.log('[syntx-mcp] Bearer auth enabled (MCP_HTTP_TOKEN).');
+    }
   } else {
     console.error('[syntx-mcp] stdio transport ready.');
   }
