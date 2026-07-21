@@ -71,11 +71,13 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
 
       # M4: OSV database scan (catches advisories npm audit misses).
-      # Pinned to v2.3.8 — the `google/osv-scanner-action` repo ships
-      # `v2.x.y` tags but no floating `v2` major-version tag, so `@v2`
-      # fails to resolve. Bump manually on upgrades.
+      # Note the `/osv-scanner-action/osv-scanner-action@<ver>` path:
+      # the repo's top-level `action.yml` is a metadata stub with no
+      # `runs:` section, so `google/osv-scanner-action@v2.3.8` is invalid.
+      # The real composite action lives in the `osv-scanner-action/`
+      # subdirectory. Pinned to v2.3.8 (no floating `v2` ref exists).
       - name: OSV scanner
-        uses: google/osv-scanner-action@v2.3.8
+        uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             --recursive
