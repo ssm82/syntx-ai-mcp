@@ -36,3 +36,6 @@ jobs:
 
       - name: Verify CLI entrypoint exists
         run: test -f dist/bin/cli.js && test -f dist/bin/cli.mjs
+
+      - name: Test
+        run: npm test

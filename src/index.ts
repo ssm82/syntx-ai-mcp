@@ -27,6 +27,7 @@ export {
 export { PlansResource } from './resources/plans';
 export { NotificationsResource, type ListNotificationsParams } from './resources/notifications';
 export { FoldersResource, SettingsResource } from './resources/folders-settings';
+export type { CreateFolderParams, CreatedFolder } from './resources/folders-settings';
 export { DesignResource, type GenerateDesignParams } from './resources/design';
 export { AudioResource, type ListVoiceExamplesParams } from './resources/audio';
 export { AppResource } from './resources/app';

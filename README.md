@@ -67,7 +67,7 @@
 
 | Группа | Что входит |
 |---|---|
-| 🛠️ **25 инструментов** | Идентификация, runtime-настройки, чаты, генерация (изображения + транскрипция), каталог, аккаунт, файлы |
+| 🛠️ **28 инструментов** | Идентификация, runtime-настройки, чаты, генерация (изображения + транскрипция), каталог, аккаунт, файлы, проекты (папки) |
 | 📄 **6 ресурсов** + 1 шаблон | `syntx://models`, `syntx://plans`, `syntx://user/me`, … |
 | 💡 **4 промпт-шаблона** | generate-landing, summarize-chat, translate, code-review |
 | 🔌 **2 транспорта** | stdio (по умолчанию) и stateless HTTP/SSE |
@@ -462,7 +462,7 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 Каждый элемент массива `files` в `upload-files` принимает **одно из двух**:
 
 - `{ path }` — путь к файлу на машине, где запущен MCP-сервер (stdio/HTTP-сервер должен иметь доступ к ФС).
-- `{ content_base64, filename }` — base64-пayload (можно с префиксом `data:<mime>;base64,`). `filename` обязателен, `mime_type` опционален и подбирается по расширению.
+- `{ content_base64, filename }` — base64-payload (можно с префиксом `data:<mime>;base64,`). `filename` обязателен, `mime_type` опционален и подбирается по расширению.
 
 Пример (смешанные источники):
 
@@ -478,6 +478,40 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
       }
     ],
     "check_duplicates": true
+  }
+}
+```
+
+### Проекты (папки)
+
+| Инструмент | Описание | Параметры |
+|---|---|---|
+| `create-project` | Создать проект (a.k.a. папку) на syntx.ai; опционально сразу добавить чаты. | `title`*, `scope?` (`text` по умолчанию), `color?` (`#9C9C9C` по умолчанию), `chat_uuids?` |
+| `add-chats-to-project` | Добавить один или несколько существующих чатов в проект (`POST /api/v1/folders/{folder_uuid}/add`). | `folder_uuid`*, `chat_uuids`* (≥ 1, `uniqueItems`) |
+| `delete-project` | Удалить проект без возможности восстановления (`DELETE /api/v1/folders/{folder_uuid}/delete`). | `folder_uuid`* |
+
+> Серверная терминология — `folders`. В продукте это «проекты», в SDK — `syntx.folders.create` / `syntx.folders.addChats`.
+
+Пример:
+
+```json
+{
+  "name": "create-project",
+  "arguments": {
+    "title": "Refactor plan",
+    "scope": "text",
+    "color": "#FFAA00",
+    "chat_uuids": ["47c2c3c5-f987-451e-9459-1ed4aaf45395"]
+  }
+}
+```
+
+```json
+{
+  "name": "add-chats-to-project",
+  "arguments": {
+    "folder_uuid": "475d21a2-221e-4f4e-83bf-16066ba33c4f",
+    "chat_uuids": ["1cc76ce8-444b-4358-9ff5-dc77c01fb4fb"]
   }
 }
 ```
@@ -722,7 +756,7 @@ await runTransport(factory, 'stdio', 3000);
 | `syntx.design` | `generate` |
 | `syntx.audio` | `listVoiceExamples` |
 | `syntx.plans` | `list`, `getPromoBanners` |
-| `syntx.folders` / `syntx.settings` | папки и настройки приложения |
+| `syntx.folders` / `syntx.settings` | список папок по scope, `create({title, scope?, color?, chat_uuids?})`, `addChats(folderUuid, chatUuids)`, `delete(folderUuid)`, настройки приложения |
 
 ## Стриминг ответов
 

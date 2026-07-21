@@ -88,7 +88,8 @@ syntx-ai-mcp/
 │   │   │   ├── ai.ts             # list-ai-services, list-models, get-model-info
 │   │   │   ├── design.ts         # generate-image
 │   │   │   ├── user.ts           # get-profile, get-balance, get-subscription
-│   │   │   └── files.ts          # list-uploaded-files, delete-file
+│   │   │   ├── files.ts          # list-uploaded-files, delete-file
+│   │   │   └── folders.ts        # create-project, add-chats-to-project
 │   │   ├── resources/
 │   │   │   ├── index.ts          # allResources[] + allResourceTemplates[]
 │   │   │   ├── static.ts         # syntx://models, syntx://plans, syntx://settings
@@ -162,6 +163,7 @@ syntx-ai-mcp/
 | `generate-image` | Генерация изображения | write |
 | `get-profile` / `get-balance` / `get-subscription` | Данные пользователя | read |
 | `list-uploaded-files` / `delete-file` | Файлы | read / write |
+| `create-project` / `add-chats-to-project` / `delete-project` | Создать папку проекта, добавить в неё чаты и удалить проект | write |
 
 **Соглашение:** потенциально опасные (write/long-running) операции имеют явные параметры; read-операции идемпотентны.
 

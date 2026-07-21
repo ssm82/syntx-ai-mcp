@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Project (folder) write APIs** mirroring the captured `requests.js`
+  traffic:
+  - SDK: `syntx.folders.create({ title, scope?, color?, chat_uuids? })`
+    and `syntx.folders.addChats(folderUuid, chatUuids)` — typed returns,
+    defaults match the web client (`text` / `#9C9C9C` / `[]`).
+  - MCP tools: `create-project` and `add-chats-to-project`. The product UI
+    calls these "projects"; the upstream API still uses `folders`, so the
+    underlying endpoints stay `POST /api/v1/folders/create` and
+    `POST /api/v1/folders/{folder_uuid}/add`.
+  - SDK `syntx.folders.delete(folderUuid)` and MCP tool `delete-project`
+    (`DELETE /api/v1/folders/{folder_uuid}/delete`). The action is
+    destructive and cannot be undone — the tool description calls this out
+    so the assistant prompts for confirmation before invoking it.
+  - New exported types: `CreateFolderParams`, `CreatedFolder` from
+    `src/resources/folders-settings.ts`.
+  - README section "Проекты (папки)" + updated tools / SDK tables.
+  - Architecture doc: `src/mcp/tools/folders.ts` listed alongside other tool
+    modules.
+
+### Security
+- `requests.js` previously contained a real bearer token. The token has been
+  redacted in the working tree (`Bearer <REDACTED>`); **rotate/revoke the
+  credential externally** because the value remains recoverable from git
+  history.
+
+### Added (previous entry, still Unreleased)
 - **Email-OTP authentication flow** mirroring the `requests.js` snapshot:
   - SDK: `syntx.auth.sendEmailOtp(email, opts?)`,
     `syntx.auth.verifyEmailOtp(email, otpCode, opts?)` (auto-installs the JWT),
@@ -20,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - README section "Авторизация через Email (OTP)" + updated tools / SDK
     tables.
 
-### Changed
+### Changed (previous entry, still Unreleased)
 - **Breaking:** `SyntxAuth.loginWithEmail(email, password)` (placeholder,
   pointed at a non-existent `/api/v1/auth/login`) was removed and replaced by
   the new `loginWithEmail(email, opts?)` whose signature is incompatible with
