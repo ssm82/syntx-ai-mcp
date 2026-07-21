@@ -1,4 +1,5 @@
-import * as fs from 'node:fs/promises';
+import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { Buffer } from 'node:buffer';
 
@@ -46,6 +47,7 @@ const EXT_TO_MIME: Record<string, string> = {
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.mp3': 'audio/mpeg',
+  '.mpeg': 'audio/mpeg',
   '.wav': 'audio/wav',
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
@@ -63,6 +65,146 @@ function decodeBase64(input: string): Buffer {
   return Buffer.from(cleaned, 'base64');
 }
 
+// ── Path-input policy (H1) ──────────────────────────────────────────────────
+
+/**
+ * Normalized MCP transport kinds. Mirrors `McpServerConfig['transport']` —
+ * kept duplicated here so this module has no MCP/transport import cycles.
+ */
+export type Transport = 'stdio' | 'http' | 'unknown';
+
+/** Result of resolving an allowed-roots list from env. */
+export interface AllowedRootsConfig {
+  /** Resolved, real-path-normalized root directories. */
+  roots: string[];
+  /** The original raw configuration (for diagnostics). */
+  source: 'env' | 'default';
+}
+
+/**
+ * Resolve the list of filesystem roots that `path`-inputs are allowed to
+ * resolve into. Default is `[process.cwd()]` — we deliberately do NOT
+ * include `os.tmpdir()` (world-writable, attacker-controlled).
+ *
+ * Override via the `MCP_FILE_ROOTS` env var (comma-separated absolute paths).
+ * Relative paths in the env var are resolved against `process.cwd()`.
+ *
+ * Roots are normalised with `fs.realpathSync` once at call time, so a
+ * symlink to `/etc` cannot smuggle a forbidden location.
+ */
+export function resolveAllowedRoots(env: NodeJS.ProcessEnv = process.env): AllowedRootsConfig {
+  const raw = env.MCP_FILE_ROOTS;
+  if (raw && raw.trim().length > 0) {
+    const roots = raw
+      .split(',')
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0)
+      .map((p) => (path.isAbsolute(p) ? p : path.resolve(process.cwd(), p)))
+      .map((p) => {
+        try {
+          return fs.realpathSync(p);
+        } catch {
+          // Fall back to the literal path; downstream `realpathSync` will
+          // surface a clear "not found" error.
+          return p;
+        }
+      });
+    if (roots.length > 0) return { roots, source: 'env' };
+  }
+  let cwd: string;
+  try {
+    cwd = fs.realpathSync(process.cwd());
+  } catch {
+    cwd = path.resolve(process.cwd());
+  }
+  return { roots: [cwd], source: 'default' };
+}
+
+/**
+ * Throw if `source === 'path'` while `transport !== 'stdio'`.
+ *
+ * This is the headline LFI defence for the HTTP transport: a remote client
+ * must never be able to direct the server to read an arbitrary file off its
+ * filesystem via the MCP tool surface.
+ */
+export function assertPathSourceAllowed(source: 'path' | 'base64', transport: Transport): void {
+  if (source === 'path' && transport !== 'stdio') {
+    throw new Error(
+      '`path` is not permitted over the HTTP transport (server-side file read). ' +
+        'Send the payload inline via `content_base64` instead.',
+    );
+  }
+}
+
+/**
+ * Normalise `inputPath` against the allow-list of roots and verify:
+ *   • the path resolves to an existing regular file
+ *   • it is not a FIFO / socket / device
+ *   • its size is within `maxBytes` (cheap stat-based pre-check)
+ *
+ * Returns the realpath-resolved absolute path on success; throws on violation.
+ * The returned path is safe to pass to `fs.readFile` without further
+ * canonicalisation.
+ */
+export function resolveSafePath(
+  inputPath: string,
+  allowedRoots: string[],
+  maxBytes: number = MAX_FILE_SIZE,
+): string {
+  if (!inputPath || typeof inputPath !== 'string') {
+    throw new Error('`path` must be a non-empty string.');
+  }
+  const abs = path.resolve(inputPath);
+  let real: string;
+  try {
+    real = fs.realpathSync(abs);
+  } catch {
+    throw new Error(`File not found or not readable: ${inputPath}`);
+  }
+  // Prefix check using path-aware comparison (handles trailing separators and
+  // case-insensitive filesystems on macOS/Windows for the directory portion).
+  const normalizedReal = process.platform === 'win32' ? real.toLowerCase() : real;
+  const ok = allowedRoots.some((root) => {
+    const normalizedRoot = process.platform === 'win32' ? root.toLowerCase() : root;
+    const withSep = normalizedRoot.endsWith(path.sep)
+      ? normalizedRoot
+      : normalizedRoot + path.sep;
+    return normalizedReal === normalizedRoot || normalizedReal.startsWith(withSep);
+  });
+  if (!ok) {
+    throw new Error(
+      `Path is outside of allowed roots: ${inputPath}. ` +
+        'Set MCP_FILE_ROOTS to expand the allow-list (default: process.cwd()).',
+    );
+  }
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(real);
+  } catch {
+    throw new Error(`File not found or not readable: ${inputPath}`);
+  }
+  if (!stat.isFile()) {
+    const kind = stat.isDirectory()
+      ? 'directory'
+      : stat.isSymbolicLink()
+        ? 'symlink'
+        : stat.isFIFO()
+          ? 'FIFO/pipe'
+          : stat.isSocket()
+            ? 'socket'
+            : stat.isBlockDevice() || stat.isCharacterDevice()
+              ? 'device'
+              : 'special file';
+    throw new Error(`Path is a ${kind}, not a regular file: ${inputPath}`);
+  }
+  if (stat.size > maxBytes) {
+    throw new Error(
+      `File too large: ${stat.size} bytes (limit ${maxBytes}). Use a smaller file.`,
+    );
+  }
+  return real;
+}
+
 /** Resolve a single file spec into bytes + filename + mime. Throws on misuse. */
 export async function resolveFileInput(item: FileInputSpec): Promise<ResolvedFile> {
   const hasPath = typeof item.path === 'string' && item.path.length > 0;
@@ -76,8 +218,11 @@ export async function resolveFileInput(item: FileInputSpec): Promise<ResolvedFil
   }
 
   if (hasPath) {
+    // H1: callers are responsible for invoking `assertPathSourceAllowed` and
+    // `resolveAllowedRoots` before passing `transport` / `allowedRoots` here.
+    // This function stays transport-agnostic so unit tests stay simple.
     const abs = path.resolve(item.path!);
-    const stat = await fs.stat(abs).catch(() => {
+    const stat = await fsp.stat(abs).catch(() => {
       throw new Error(`File not found or not readable: ${item.path}`);
     });
     if (stat.isDirectory()) {
@@ -88,7 +233,7 @@ export async function resolveFileInput(item: FileInputSpec): Promise<ResolvedFil
         `File too large: ${stat.size} bytes (limit ${MAX_FILE_SIZE}). Use a smaller file.`,
       );
     }
-    const buffer = await fs.readFile(abs);
+    const buffer = await fsp.readFile(abs);
     const filename = item.filename ?? path.basename(abs);
     const mimeType = item.mime_type ?? guessMimeFromExt(filename);
     return { buffer, filename, mimeType, source: 'path' };

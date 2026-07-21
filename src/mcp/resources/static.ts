@@ -84,7 +84,7 @@ export const staticResources: SyntxResource[] = [
     description: 'Profile of the authenticated user.',
     mimeType: 'application/json',
     async read(ctx) {
-      const user = await ctx.syntx.user.me();
+      const user = await ctx.syntx.user.mePublic();
       return { contents: [{ uri: 'syntx://user/me', mimeType: 'application/json', text: JSON.stringify(user, null, 2) }] };
     },
   },

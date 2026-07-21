@@ -1,6 +1,40 @@
-import type { SyntxTool } from '../registry';
-import { textResult, toMcpError } from '../errors';
+import type { SyntxTool, SyntxToolResult } from '../registry';
+import { textResult, toMcpError, toolError } from '../errors';
 import { SyntxAuthError } from '../../errors';
+import { logSecurityEvent } from '../security-log';
+import type { McpContext } from '../registry';
+
+/**
+ * Security invariant (H4): an HTTP request must not mutate authentication
+ * state shared with other HTTP clients. The shared mutable `SyntxClient`
+ * singleton (M2) is a transitional state — until 0.3.0 introduces per-request
+ * token scoping, we hard-block token-mutating tools when running over HTTP.
+ *
+ * `stdio` clients own the process and are permitted to install tokens at
+ * runtime; `http` clients must come pre-configured (via `SYNTX_TOKEN` env).
+ *
+ * Returns an MCP error result when the transport is not permitted, or
+ * `null` when the call may proceed. Handlers must propagate the result:
+ *
+ *   const blocked = assertLocalAuthMutationAllowed(ctx, 'set-token');
+ *   if (blocked) return blocked;
+ */
+function assertLocalAuthMutationAllowed(ctx: McpContext, op: string): SyntxToolResult | null {
+  if (ctx.config.transport !== 'stdio') {
+    logSecurityEvent({
+      kind: 'auth-mutation.rejected',
+      transport: ctx.config.transport,
+      reason: op,
+      meta: { tool: op },
+    });
+    return toolError(
+      `${op}: not permitted over the ${ctx.config.transport} transport. ` +
+        'Authentication state is process-global; configure the bearer via the SYNTX_TOKEN ' +
+        'environment variable before starting the server.',
+    );
+  }
+  return null;
+}
 
 /**
  * Authentication & identity tools.
@@ -22,10 +56,13 @@ import { SyntxAuthError } from '../../errors';
 export const authTools: SyntxTool[] = [
   {
     name: 'whoami',
+    capability: { networkCall: true },
     description:
       'Return an identity check for the current syntx.ai user: ' +
-      '{ authenticated, user } where `user` is the full profile (same fields ' +
-      'as get-profile). This tool NEVER errors on missing/invalid tokens — ' +
+      '{ authenticated, user } where `user` is a sanitised public profile ' +
+      '(id, user_id, name, username, email, avatar, auth_services). Internal ' +
+      'identifiers such as `chatwoot_hmac` / `ym_client_id` are intentionally ' +
+      'stripped. This tool NEVER errors on missing/invalid tokens — ' +
       'it returns { authenticated: false } instead. Use it to verify ' +
       'authentication status. Real failures (network/API errors) still raise ' +
       'an MCP error so you can tell "not logged in" from "API unreachable".',
@@ -40,7 +77,7 @@ export const authTools: SyntxTool[] = [
         return textResult(JSON.stringify({ authenticated: false, user: null }, null, 2));
       }
       try {
-        const user = await ctx.syntx.user.me();
+        const user = await ctx.syntx.user.mePublic();
         return textResult(JSON.stringify({ authenticated: true, user }, null, 2));
       } catch (err) {
         // Auth errors (401/403) → report not-authenticated, not an MCP error.
@@ -54,12 +91,15 @@ export const authTools: SyntxTool[] = [
   },
   {
     name: 'set-token',
+    capability: { authMutation: true },
     description:
       'Set or replace the syntx.ai bearer token used by the server at runtime. ' +
       'Call this before any authenticated operation if SYNTX_TOKEN was not configured. ' +
       'The token is held in memory only — it is not persisted to disk and is lost ' +
-      'when the process restarts. Over the stateless HTTP transport the token applies ' +
-      'to the whole process, so HTTP is intended for single-user loopback use only.',
+      'when the process restarts. ' +
+      '**stdio only**: this tool is rejected over the HTTP transport to prevent ' +
+      'a remote client from hijacking the process-shared bearer (H4). Configure ' +
+      'the token via the SYNTX_TOKEN env variable when running with --transport http.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -72,6 +112,8 @@ export const authTools: SyntxTool[] = [
       additionalProperties: false,
     },
     async handler(args, ctx) {
+      const blocked = assertLocalAuthMutationAllowed(ctx, 'set-token');
+      if (blocked) return blocked;
       const token = String(args.token ?? '').trim();
       if (!token) return toMcpError(new Error('token must be a non-empty string'), 'set-token');
       ctx.setToken(token);
@@ -80,6 +122,7 @@ export const authTools: SyntxTool[] = [
   },
   {
     name: 'validate-token',
+    capability: { networkCall: true },
     description: 'Check whether the currently configured token is accepted by syntx.ai.',
     inputSchema: {
       type: 'object',
@@ -100,6 +143,7 @@ export const authTools: SyntxTool[] = [
   },
   {
     name: 'start-telegram-auth',
+    capability: { networkCall: true },
     description:
       'Begin a Telegram-based login on syntx.ai. Calls POST /api/v1/auth/startauth and ' +
       'returns a session UUID together with a t.me deep-link (e.g. ' +
@@ -147,6 +191,7 @@ export const authTools: SyntxTool[] = [
   },
   {
     name: 'poll-telegram-auth',
+    capability: { authMutation: true, networkCall: true },
     description:
       'Poll the status of an auth session created by `start-telegram-auth`. Calls ' +
       'GET /api/v1/auth/token/{uuid}. The response shape is ' +
@@ -176,6 +221,10 @@ export const authTools: SyntxTool[] = [
       const uuid = String(args.uuid ?? '').trim();
       if (!uuid) return toMcpError(new Error('uuid must be a non-empty string'), 'poll-telegram-auth');
       const install = args.install_token === undefined ? true : Boolean(args.install_token);
+      if (install) {
+        const blocked = assertLocalAuthMutationAllowed(ctx, 'poll-telegram-auth');
+        if (blocked) return blocked;
+      }
       try {
         const status = await ctx.syntx.auth.pollAuthToken(uuid);
         if (install && status.complete && status.token) {
@@ -198,6 +247,7 @@ export const authTools: SyntxTool[] = [
   },
   {
     name: 'login-telegram',
+    capability: { authMutation: true, networkCall: true },
     description:
       'One-shot Telegram device-auth flow: creates an auth session, returns the bot ' +
       'deep-link, polls /api/v1/auth/token/{uuid} until completion, and installs the ' +
@@ -246,6 +296,9 @@ export const authTools: SyntxTool[] = [
         uuid = id;
       };
 
+      const blocked = assertLocalAuthMutationAllowed(ctx, 'login-telegram');
+      if (blocked) return blocked;
+
       try {
         const result = await ctx.syntx.auth.loginWithTelegram(opts);
         return textResult(
@@ -286,6 +339,7 @@ export const authTools: SyntxTool[] = [
   },
   {
     name: 'send-email-otp',
+    capability: { networkCall: true, costSideEffect: true },
     description:
       'Request a one-time password to be emailed to the user. Calls ' +
       '`POST /api/v1/auth/email/send-otp` with `{ email, ref_uuid, utm }`. ' +
@@ -345,6 +399,7 @@ export const authTools: SyntxTool[] = [
   },
   {
     name: 'verify-email-otp',
+    capability: { authMutation: true, networkCall: true },
     description:
       'Exchange an OTP code for a JWT bearer token. Calls ' +
       '`POST /api/v1/auth/email/verify-otp` with `{ email, otp_code, ref_uuid, utm }`. ' +
@@ -390,6 +445,10 @@ export const authTools: SyntxTool[] = [
       const email = String(args.email ?? '').trim();
       if (!email) return toMcpError(new Error('email must be a non-empty string'), 'verify-email-otp');
       const install = args.install_token === undefined ? true : Boolean(args.install_token);
+      if (install) {
+        const blocked = assertLocalAuthMutationAllowed(ctx, 'verify-email-otp');
+        if (blocked) return blocked;
+      }
       const opts: Parameters<typeof ctx.syntx.auth.verifyEmailOtp>[2] = { install };
       if (args.ref_uuid !== undefined && args.ref_uuid !== null) {
         opts.ref_uuid = String(args.ref_uuid);

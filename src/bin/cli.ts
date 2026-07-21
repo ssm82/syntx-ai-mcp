@@ -101,8 +101,9 @@ async function main(): Promise<void> {
   }
 
   // Stateless HTTP builds a fresh server per request; stdio reuses one instance.
-  // Both transports source their server(s) from this factory.
-  const serverFactory = () => createMcpServer(config).server;
+  // Both transports source their server(s) from this factory. `requestToken`
+  // is the M2 HTTP Authorization-passthrough credential (undefined on stdio).
+  const serverFactory = (requestToken?: string) => createMcpServer(config, requestToken).server;
 
   try {
     await runTransport(serverFactory, config.transport, config.httpPort, {
@@ -118,10 +119,13 @@ async function main(): Promise<void> {
   }
 
   if (config.transport === 'http') {
-    console.log(`[syntx-mcp] HTTP transport listening on http://${config.httpHostname}:${config.httpPort}/mcp`);
-    console.log('[syntx-mcp] Health check at /health');
+    // L3: bootstrap messages must go to stderr — stdout is reserved for
+    // JSON-RPC frames when running under stdio, and we want a single
+    // convention across all transports.
+    console.error(`[syntx-mcp] HTTP transport listening on http://${config.httpHostname}:${config.httpPort}/mcp`);
+    console.error('[syntx-mcp] Health check at /health');
     if (config.httpToken) {
-      console.log('[syntx-mcp] Bearer auth enabled (MCP_HTTP_TOKEN).');
+      console.error('[syntx-mcp] Bearer auth enabled (MCP_HTTP_TOKEN).');
     }
   } else {
     console.error('[syntx-mcp] stdio transport ready.');

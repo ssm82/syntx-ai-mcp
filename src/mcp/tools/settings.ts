@@ -16,6 +16,7 @@ import { textResult, toMcpError } from '../errors';
 export const settingsTools: SyntxTool[] = [
   {
     name: 'get-settings',
+    capability: {},
     description:
       'Return the current effective runtime configuration: base URL, language, ' +
       'default AI provider, default model, polling/streaming parameters, transport, ' +
@@ -52,6 +53,7 @@ export const settingsTools: SyntxTool[] = [
   },
   {
     name: 'set-default-model',
+    capability: {},
     description:
       'Install a new default AI model at runtime. Subsequent chat tools that omit ' +
       '`model_type` will use this value. Pass `null` for `model` to clear the override ' +
@@ -113,6 +115,7 @@ export const settingsTools: SyntxTool[] = [
   },
   {
     name: 'set-default-ai',
+    capability: {},
     description:
       'Switch the default AI provider at runtime (e.g. "chatgpt" → "claude"). ' +
       'Affects all tools that fall back to `defaultAI` when the caller omits `ai_name`.',

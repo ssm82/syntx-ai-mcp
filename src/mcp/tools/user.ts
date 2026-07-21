@@ -11,11 +11,14 @@ import { textResult, toMcpError, toolError } from '../errors';
 export const userTools: SyntxTool[] = [
   {
     name: 'get-profile',
+    capability: { networkCall: true },
     description:
-      'Return the current user profile (full fields: id, name, username, email, ' +
-      'avatar, auth_services, …). Requires authentication — raises a clear error ' +
-      'when no token is set. For a non-erroring identity check, use `whoami` ' +
-      'which returns { authenticated, user }.',
+      'Return the current user profile (sanitised public fields: id, user_id, ' +
+      'name, username, email, avatar, auth_services). Internal identifiers such ' +
+      'as `chatwoot_hmac` / `ym_client_id` are stripped before returning. ' +
+      'Requires authentication — raises a clear error when no token is set. ' +
+      'For a non-erroring identity check, use `whoami` which returns ' +
+      '{ authenticated, user }.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     async handler(_args, ctx) {
       if (!ctx.syntx.auth.isAuthenticated()) {
@@ -25,7 +28,7 @@ export const userTools: SyntxTool[] = [
         );
       }
       try {
-        return textResult(JSON.stringify(await ctx.syntx.user.me(), null, 2));
+        return textResult(JSON.stringify(await ctx.syntx.user.mePublic(), null, 2));
       } catch (err) {
         return toMcpError(err, 'get-profile');
       }
@@ -33,6 +36,7 @@ export const userTools: SyntxTool[] = [
   },
   {
     name: 'get-balance',
+    capability: { networkCall: true },
     description: 'Return the current token balance for the authenticated user.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     async handler(_args, ctx) {
@@ -45,6 +49,7 @@ export const userTools: SyntxTool[] = [
   },
   {
     name: 'get-subscription',
+    capability: { networkCall: true },
     description: 'Return the active subscription and referral information for the user.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     async handler(_args, ctx) {

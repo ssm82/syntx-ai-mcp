@@ -1,6 +1,13 @@
 import type { SyntxTool } from '../registry';
 import { textResult, toMcpError } from '../errors';
-import { resolveFileInput, type FileInputSpec } from './file-input';
+import {
+  assertPathSourceAllowed,
+  resolveAllowedRoots,
+  resolveFileInput,
+  resolveSafePath,
+  type FileInputSpec,
+} from './file-input';
+import { logSecurityEvent } from '../security-log';
 
 /**
  * Audio transcription tool.
@@ -24,6 +31,7 @@ export const TRANSCRIBE_ACCEPTED_MIMES = ['audio/mpeg', 'audio/wav', 'audio/mp3'
 export const audioTools: SyntxTool[] = [
   {
     name: 'transcribe',
+    capability: { localFileRead: true, externalExfiltration: true, networkCall: true, costSideEffect: true },
     description:
       'Transcribe an audio file to text via syntx.ai (POST /api/v1/audio/transcribe). ' +
       'Provide a single file either as `path` (server filesystem; stdio transport only) ' +
@@ -68,19 +76,47 @@ export const audioTools: SyntxTool[] = [
           mime_type: typeof args.mime_type === 'string' ? args.mime_type : undefined,
         };
 
-        // LFI guard (Opus 4.8): a remote client must not direct the server to
+        // LFI guard (H1): a remote client must not direct the server to
         // read arbitrary files off its filesystem over the HTTP transport.
-        if (spec.path && ctx.config.transport !== 'stdio') {
+        // On stdio, the path must still resolve inside the allow-listed
+        // roots (anti-symlink-escape, anti-special-files).
+        if (spec.path) {
+          assertPathSourceAllowed('path', ctx.config.transport);
+          try {
+            resolveSafePath(spec.path, resolveAllowedRoots().roots, TRANSCRIBE_MAX_SIZE);
+          } catch (err) {
+            logSecurityEvent({
+              kind: 'upload-files.path.rejected',
+              transport: ctx.config.transport,
+              reason: err instanceof Error ? err.message : String(err),
+            });
+            throw err;
+          }
+        }
+
+        const resolved = await resolveFileInput(spec);
+
+        // I1: enforce the advertised MIME whitelist. `resolveFileInput`
+        // infers the type from the filename extension (or an explicit
+        // `mime_type` override) but does not validate it — without this
+        // check the tool would happily forward a `.exe` to the transcribe
+        // endpoint.
+        const resolvedMime = (resolved.mimeType ?? '').toLowerCase().split(';')[0].trim();
+        if (!TRANSCRIBE_ACCEPTED_MIMES.includes(resolvedMime)) {
+          logSecurityEvent({
+            kind: 'transcribe.mime.rejected',
+            transport: ctx.config.transport,
+            reason: resolvedMime || 'unknown',
+            meta: { mime: resolvedMime || 'unknown' },
+          });
           return toMcpError(
             new Error(
-              '`path` is not permitted over the HTTP transport (server-side file read). ' +
-                'Send the audio inline via `content_base64` instead.',
+              `Unsupported audio type: ${resolved.mimeType ?? 'unknown'} ` +
+                `(accepted: ${TRANSCRIBE_ACCEPTED_MIMES.join(', ')}).`,
             ),
             'transcribe',
           );
         }
-
-        const resolved = await resolveFileInput(spec);
 
         if (resolved.buffer.byteLength > TRANSCRIBE_MAX_SIZE) {
           return toMcpError(

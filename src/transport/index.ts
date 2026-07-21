@@ -23,10 +23,12 @@ export interface RunTransportHttpOptions {
  * - **stdio**: a single long-lived server instance serves the whole process.
  * - **http**: stateless — a fresh server is built from `serverFactory` for
  *   each request (see {@link startHttp}). `httpOptions` carries the bind
- *   hostname and optional bearer token.
+ *   hostname and optional bearer token. The optional `requestToken` argument
+ *   carries the M2 request-scoped credential (HTTP Authorization passthrough);
+ *   stdio callers simply ignore it.
  */
 export async function runTransport(
-  serverFactory: () => Server,
+  serverFactory: (requestToken?: string) => Server,
   kind: TransportKind,
   httpPort: number,
   httpOptions: RunTransportHttpOptions = {},

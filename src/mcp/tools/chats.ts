@@ -13,6 +13,7 @@ import { textResult, toMcpError } from '../errors';
 export const chatsTools: SyntxTool[] = [
   {
     name: 'list-chats',
+    capability: { networkCall: true },
     description: 'List the user chats, optionally filtered by scope or a search query.',
     inputSchema: {
       type: 'object',
@@ -40,6 +41,7 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'create-chat',
+    capability: { networkCall: true },
     description: 'Create a new syntx.ai chat session and return its UUID. A title is required by the API.',
     inputSchema: {
       type: 'object',
@@ -66,6 +68,7 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'get-messages',
+    capability: { networkCall: true },
     description: 'Return the message history of a chat (by UUID or numeric id).',
     inputSchema: {
       type: 'object',
@@ -91,6 +94,7 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'send-message',
+    capability: { networkCall: true, costSideEffect: true },
     description:
       'Send a message (prompt) to an existing chat and return immediately. ' +
       'The assistant response is generated asynchronously — poll with `wait-for-response` ' +
@@ -127,6 +131,7 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'wait-for-response',
+    capability: { networkCall: true },
     description:
       'Block until the latest assistant message in a chat finishes generating, then return its text. ' +
       'Respects the server poll interval/timeout. Use after `send-message`.',
@@ -156,6 +161,7 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'ask',
+    capability: { networkCall: true, costSideEffect: true },
     description:
       'One-shot helper: create a chat, send a prompt, wait for the completed assistant reply, and return it. ' +
       'Ideal for stateless Q&A. The created chat UUID is included in the response for follow-ups. ' +
@@ -225,6 +231,7 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'stream-message',
+    capability: { networkCall: true, costSideEffect: true },
     description:
       'One-shot streaming chat: opens a WSS connection, sends the prompt, and ' +
       'streams the assistant reply in real time. Intermediate progress is ' +
@@ -261,6 +268,7 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'generate-title',
+    capability: { networkCall: true, costSideEffect: true },
     description: 'Ask syntx.ai to auto-generate a title for an existing chat (by UUID).',
     inputSchema: {
       type: 'object',

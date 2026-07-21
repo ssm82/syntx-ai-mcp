@@ -1,22 +1,31 @@
 import { SyntxClient } from '../syntx-client';
+import { SyntxAuthError } from '../errors';
 import type { McpServerConfig } from '../config';
 import type { McpContext, SyntxToolExtra } from './registry';
 
 /**
  * Build the shared {@link McpContext} for a server instance.
  *
- * The context owns the single {@link SyntxClient} used by every tool/resource,
- * and exposes runtime mutators so the `set-token` and `set-default-*` tools
- * can re-credential / re-configure the server without rebuilding it.
+ * Token precedence (M2, v0.3.0):
+ *   1. `requestToken` — HTTP request `Authorization`-header scope
+ *      (multi-tenant / credential-passthrough mode). When present the
+ *      credential is immutable for the lifetime of the context: `setToken`
+ *      throws, so no request can ever overwrite another tenant's token.
+ *   2. Runtime `set-token` — stdio only (H4 invariant blocks it over HTTP).
+ *   3. `config.token` (env `SYNTX_TOKEN`) — startup-immutable fallback.
+ *
+ * The context owns the {@link SyntxClient} used by every tool/resource.
+ * Over the stateless HTTP transport a fresh context is built per request,
+ * so a request-scoped token never leaks across connections.
  *
  * `config` is a *live, mutable* object internally, but the public field is
  * typed `Readonly<McpServerConfig>` — callers should always go through the
  * provided mutators (`setDefaultModel`, `setDefaultAI`) rather than mutating
  * the object directly.
  */
-export function createMcpContext(config: McpServerConfig): McpContext {
+export function createMcpContext(config: McpServerConfig, requestToken?: string): McpContext {
   const syntx = new SyntxClient({
-    token: config.token,
+    token: requestToken ?? config.token,
     baseURL: config.baseURL,
     timeout: config.timeout,
   });
@@ -25,6 +34,13 @@ export function createMcpContext(config: McpServerConfig): McpContext {
     syntx,
     config,
     setToken(token) {
+      if (requestToken !== undefined) {
+        throw new SyntxAuthError(
+          'This context carries a request-scoped credential (HTTP Authorization ' +
+            'passthrough) and cannot be mutated. Retry with a different ' +
+            'Authorization header instead.',
+        );
+      }
       syntx.auth.setToken(token ?? '');
     },
     setDefaultModel(model) {

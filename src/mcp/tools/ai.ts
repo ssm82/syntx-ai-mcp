@@ -6,6 +6,7 @@ import { filterModels } from './model-scope';
 export const aiTools: SyntxTool[] = [
   {
     name: 'list-ai-services',
+    capability: { networkCall: true },
     description: 'List all syntx.ai AI services (e.g. ChatGPT, Midjourney, Sora) with their scope and status.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     async handler(_args, ctx) {
@@ -19,6 +20,7 @@ export const aiTools: SyntxTool[] = [
   },
   {
     name: 'list-models',
+    capability: { networkCall: true },
     description:
       'List AI models with upload constraints, supported media types, and features. ' +
       'Filters (all optional, combined with AND): `scope` (text|image|video|audio|upscale), ' +
@@ -67,6 +69,7 @@ export const aiTools: SyntxTool[] = [
   },
   {
     name: 'get-model-info',
+    capability: { networkCall: true },
     description: 'Return detailed information about a specific AI model (pricing/cost params, limits).',
     inputSchema: {
       type: 'object',

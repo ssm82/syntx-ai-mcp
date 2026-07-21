@@ -5,6 +5,7 @@ import { textResult, toMcpError } from '../errors';
 export const designTools: SyntxTool[] = [
   {
     name: 'generate-image',
+    capability: { networkCall: true, costSideEffect: true },
     description:
       'Generate one or more images on syntx.ai using a design service (e.g. sora-images, flux). ' +
       'Requires a target chat UUID; the result includes generation metadata returned by the API.',

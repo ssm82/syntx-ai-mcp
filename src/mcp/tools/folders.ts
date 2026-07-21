@@ -12,6 +12,7 @@ import { textResult, toMcpError, toolError } from '../errors';
 export const foldersTools: SyntxTool[] = [
   {
     name: 'create-project',
+    capability: { networkCall: true },
     description:
       'Create a syntx.ai project (a.k.a. folder) and optionally seed it with ' +
       'existing chats. Returns the created project as JSON (uuid, title, scope, ' +
@@ -74,6 +75,7 @@ export const foldersTools: SyntxTool[] = [
   },
   {
     name: 'add-chats-to-project',
+    capability: { networkCall: true },
     description:
       'Add one or more existing chats to an existing project. Mirrors ' +
       '`syntx.folders.addChats`. Sends a bare JSON array of chat UUIDs to ' +
@@ -131,6 +133,7 @@ export const foldersTools: SyntxTool[] = [
   },
   {
     name: 'delete-project',
+    capability: { networkCall: true },
     description:
       'Permanently delete a syntx.ai project (a.k.a. folder). ' +
       'Mirrors `syntx.folders.delete`. Issues `DELETE /api/v1/folders/{folder_uuid}/delete`. ' +

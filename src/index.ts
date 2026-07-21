@@ -13,7 +13,7 @@ export { SyntxAPIError, SyntxAuthError } from './errors';
 export * from './types';
 
 export { AIResource, type GetModelInfoParams } from './resources/ai';
-export { UserResource } from './resources/user';
+export { UserResource, toPublicUser } from './resources/user';
 export {
   ChatsResource,
   type ListChatsParams,

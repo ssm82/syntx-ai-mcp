@@ -75,9 +75,14 @@ export interface AIModel {
 }
 
 /**
- * User profile from /api/v1/user
+ * User profile from /api/v1/user.
+ *
+ * `UserInternal` is the raw wire shape including internal identifiers that
+ * must never be exposed to MCP clients (e.g. `chatwoot_hmac`, `ym_client_id`
+ * — see security advisory H2). The narrow `PublicUser` projection is the
+ * only shape safe to surface through MCP tools/resources.
  */
-export interface User {
+export interface UserInternal {
   id: number;
   user_id: number;
   created_at: number;
@@ -89,6 +94,28 @@ export interface User {
   ym_client_id: string | null;
   chatwoot_hmac: string | null;
 }
+
+/**
+ * Public projection of a syntx.ai user profile — the only shape that should
+ * be serialised to MCP clients. Internal identifiers (`chatwoot_hmac`,
+ * `ym_client_id`, `created_at`) are intentionally excluded.
+ */
+export interface PublicUser {
+  id: number;
+  user_id: number;
+  name: string | null;
+  username: string | null;
+  email: string | null;
+  avatar: string | null;
+  auth_services: string[];
+}
+
+/**
+ * @deprecated Use {@link UserInternal} for raw SDK responses and {@link PublicUser}
+ *   for the sanitised projection. Retained as a type alias so existing callers
+ *   continue to compile; new code must pick the appropriate concrete type.
+ */
+export type User = UserInternal;
 
 /**
  * Token balance from /api/v1/user/balance
@@ -187,6 +214,20 @@ export interface EmailOtpOptions {
   ref_uuid?: string | null;
   /** UTM tag for attribution. Mirrors the `utm` field in `requests.js`. */
   utm?: string;
+}
+
+/**
+ * Token response from Google's OAuth 2.0 token endpoint
+ * (`POST https://oauth2.googleapis.com/token`) for the
+ * Authorization Code + PKCE exchange (M3).
+ */
+export interface GoogleTokenResponse {
+  access_token: string;
+  expires_in: number;
+  token_type: string;
+  scope?: string;
+  refresh_token?: string;
+  id_token?: string;
 }
 
 /**

@@ -39,3 +39,42 @@ jobs:
 
       - name: Test
         run: npm test
+
+  security:
+    name: Security gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can scan the whole commit range.
+          fetch-depth: 0
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # M4: block the merge on high/critical vulnerabilities in
+      # production dependencies.
+      - name: Dependency audit (npm audit)
+        run: npm audit --omit=dev --audit-level=high
+
+      # M4: OSV database scan (catches advisories npm audit misses).
+      - name: OSV scanner
+        uses: google/osv-scanner-action@v2
+        with:
+          scan-args: |-
+            --recursive
+            .
+
+      # M4: secret-leak scan across the working tree and git history.
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

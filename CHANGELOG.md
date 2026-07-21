@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - Unreleased
+
+### Security
+- **M2 — request-scoped credentials over HTTP.** `createMcpServer` /
+  `createMcpContext` now accept an optional `requestToken`; the HTTP
+  transport forwards the request's `Authorization: Bearer` credential to the
+  MCP layer when the transport-level `MCP_HTTP_TOKEN` gate is not configured
+  (credential-passthrough / multi-tenant mode). A request-scoped token is
+  immutable: `setToken` on such a context throws. Token precedence:
+  request header → runtime `set-token` (stdio only) → `SYNTX_TOKEN` env.
+- **M3 — Google OAuth moved to Authorization Code + PKCE.**
+  `getGoogleLoginUrl(clientId, redirectUri, { state?, codeChallenge? })`
+  now emits `response_type=code` (Implicit Grant removed). New
+  `SyntxAuth.generatePkcePair()` and `syntx.auth.exchangeGoogleCode(...)`
+  helpers complete the flow. **Breaking** for the previous placeholder
+  signature.
+- **M5 — hard fail on unauthenticated non-loopback bind.** Starting the
+  HTTP transport on a non-loopback address without `MCP_HTTP_TOKEN` now
+  throws at startup instead of printing a warning.
+- **M6 — SSE connection limits.** Standalone SSE (GET) streams are capped
+  (`MCP_HTTP_MAX_SSE_CLIENTS`, default 100 → 429 beyond) and idle streams
+  are reaped (`MCP_HTTP_SSE_IDLE_TIMEOUT_MS`, default 60 000 ms; `0`
+  disables). Per-client queue bounding is implicit via TCP backpressure —
+  the stateless transport keeps no server-side event queue.
+- **I1 — transcribe MIME whitelist enforced.** The `transcribe` tool now
+  rejects payloads whose resolved MIME type is not in
+  `TRANSCRIBE_ACCEPTED_MIMES` (`audio/mpeg`, `audio/wav`, `audio/mp3`).
+- **I2 — ReDoS-safe resource template matching.** `matchTemplate` escapes
+  regex metacharacters in template literals and hard-caps URI (512) and
+  template (256) lengths.
+- **I3 — tool capability inventory.** `SyntxTool.capability` metadata
+  (`localFileRead` / `authMutation` / `externalExfiltration` /
+  `networkCall` / `costSideEffect`) is declared for every tool; the server
+  generically rejects `path` arguments for `localFileRead` tools on
+  non-stdio transports.
+- **M4 — CI security gates.** New `security` job: `npm audit
+  --omit=dev --audit-level=high`, `google/osv-scanner-action@v2`, and
+  `gitleaks/gitleaks-action@v2`.
+
 ## [Unreleased]
 
 ### Added

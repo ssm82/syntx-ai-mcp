@@ -8,10 +8,15 @@
  *   used by {@link ChatsResource.streamResponse}, which now polls via REST.
  *   Do not rely on this module for production use.
  *
- * Original flow (never functional against the live API):
- *  1. `connect(endpoint)` — opens a WSS connection with token+lang query params
- *  2. send JSON `{ action, ... }` messages; receive `StreamingMessage` events
- *  3. call `close()` to release resources
+ * Security note (H3): the bearer token is no longer sent as a URL query
+ * parameter (it leaked into access logs, browser history, and proxy traces).
+ * In Node it is passed via the `Authorization: Bearer …` header instead.
+ * The browser `WebSocket` constructor cannot set custom headers, so this
+ * class is Node-only by definition.
+ *
+ * Migration: prefer {@link ChatsResource.waitForResponse} (REST polling) for
+ * any production usage. The `wss://…/api/v1/chats/stream` endpoint has never
+ * been functional against the live syntx.ai API.
  */
 
 export interface WSSMessage {
@@ -102,16 +107,25 @@ export class SyntxWebSocket {
     }
   }
 
-  /** Build the full WSS URL for an endpoint, with token+lang query params. */
+  /**
+   * Build the WSS URL for an endpoint. The bearer token is intentionally
+   * NOT placed in the query string (H3) — only the public `lang` parameter
+   * remains. The token travels in the `Authorization: Bearer …` header set
+   * by `connect()`.
+   */
   private buildUrl(endpoint: string): string {
     const url = new URL(`${this.baseURL}/${endpoint.replace(/^\//, '')}`);
-    if (this.token) url.searchParams.set('token', this.token);
     if (this.lang) url.searchParams.set('lang', this.lang);
     return url.toString();
   }
 
   /**
    * Open a new WSS connection. Throws if the socket is already open.
+   *
+   * The bearer token is passed via the `Authorization` header (Node `ws`)
+   * rather than as a query parameter (H3). The browser `WebSocket` global
+   * cannot set custom headers and will silently drop the auth header; this
+   * class is therefore Node-only.
    *
    * @param endpoint - Path under the base URL, e.g. `chats/stream`.
    */
@@ -122,7 +136,16 @@ export class SyntxWebSocket {
     this.endpoint = endpoint;
     this.closedByUser = false;
     const url = this.buildUrl(endpoint);
-    const ws = new WebSocket(url);
+    const headers: Record<string, string> = {};
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    // The browser `WebSocket` global does not accept a headers object; the
+    // `ws` package used in Node does. Cast through `unknown` because we
+    // require Node ≥ 18 (engines.node) and `ws` is on the dev/runtime
+    // contract for any caller that imports this module.
+    const ws = new (WebSocket as unknown as new (
+      url: string,
+      opts?: { headers?: Record<string, string> },
+    ) => WebSocket)(url, { headers });
     this.ws = ws;
 
     ws.onopen = () => {

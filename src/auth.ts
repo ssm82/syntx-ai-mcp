@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { BaseClient } from './client';
 import { SyntxAuthError } from './errors';
 import type {
@@ -6,7 +7,13 @@ import type {
   EmailOtpOptions,
   EmailOtpSendResult,
   EmailOtpVerifyResult,
+  GoogleTokenResponse,
 } from './types';
+
+/** base64url-encode without padding (RFC 7636 §4.2). */
+function base64url(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
 
 /**
  * Authentication module for syntx.ai.
@@ -61,19 +68,101 @@ export class SyntxAuth {
   }
 
   /**
-   * Placeholder: Initiate Google OAuth login.
-   * You will need to configure your Google OAuth client_id.
+   * Generate a PKCE key pair (RFC 7636): a high-entropy `code_verifier`
+   * and its `S256` `code_challenge`. Use the challenge when building the
+   * authorization URL ({@link getGoogleLoginUrl}) and keep the verifier
+   * secret until {@link exchangeGoogleCode}.
    */
-  getGoogleLoginUrl(clientId: string, redirectUri: string, state?: string): string {
+  static generatePkcePair(): { codeVerifier: string; codeChallenge: string } {
+    const codeVerifier = base64url(randomBytes(32));
+    const codeChallenge = base64url(createHash('sha256').update(codeVerifier).digest());
+    return { codeVerifier, codeChallenge };
+  }
+
+  /**
+   * Build a Google OAuth 2.0 authorization URL using the
+   * **Authorization Code + PKCE** flow (M3, v0.3.0).
+   *
+   * The legacy Implicit Grant (`response_type=token`) is deprecated by
+   * OAuth 2.0 Security Best Current Practice — access tokens must no longer
+   * travel through the browser front-channel. Pass the `codeChallenge` from
+   * {@link generatePkcePair} and, after the redirect, call
+   * {@link exchangeGoogleCode} with the matching verifier.
+   *
+   * @param clientId  Google OAuth client ID (public / installed-app client).
+   * @param redirectUri  Registered redirect URI.
+   * @param options.state  Optional CSRF token round-tripped through Google.
+   * @param options.codeChallenge  PKCE S256 challenge. REQUIRED in practice —
+   *   omit only when talking to a legacy authorization server; Google
+   *   accepts the flow without it but you lose the interception defence.
+   */
+  getGoogleLoginUrl(
+    clientId: string,
+    redirectUri: string,
+    options: { state?: string; codeChallenge?: string } = {},
+  ): string {
     const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
     url.searchParams.set('client_id', clientId);
     url.searchParams.set('redirect_uri', redirectUri);
-    url.searchParams.set('response_type', 'token');
+    url.searchParams.set('response_type', 'code');
     url.searchParams.set('scope', 'email profile');
-    if (state) {
-      url.searchParams.set('state', state);
+    if (options.state) {
+      url.searchParams.set('state', options.state);
+    }
+    if (options.codeChallenge) {
+      url.searchParams.set('code_challenge', options.codeChallenge);
+      url.searchParams.set('code_challenge_method', 'S256');
     }
     return url.toString();
+  }
+
+  /**
+   * Exchange an authorization `code` (plus the PKCE `codeVerifier`) for
+   * tokens at Google's token endpoint. Intended for public clients
+   * (installed apps / CLI tools) where no `client_secret` exists — the
+   * verifier proves continuity with the original authorization request.
+   *
+   * This call bypasses the syntx.ai API base URL on purpose: it talks to
+   * `https://oauth2.googleapis.com/token` directly. If your deployment
+   * instead routes the exchange through a syntx.ai endpoint that accepts
+   * `code_verifier`, prefer that endpoint and keep this method for local
+   * development.
+   *
+   * Throws `SyntxAuthError` when Google rejects the exchange.
+   */
+  async exchangeGoogleCode(options: {
+    clientId: string;
+    redirectUri: string;
+    code: string;
+    codeVerifier: string;
+  }): Promise<GoogleTokenResponse> {
+    const { clientId, redirectUri, code, codeVerifier } = options;
+    if (!code.trim() || !codeVerifier.trim()) {
+      throw new SyntxAuthError('exchangeGoogleCode requires non-empty code and codeVerifier.');
+    }
+    const body = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      code,
+      code_verifier: codeVerifier,
+    });
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      const detail =
+        typeof payload.error_description === 'string'
+          ? payload.error_description
+          : typeof payload.error === 'string'
+            ? payload.error
+            : response.statusText;
+      throw new SyntxAuthError(`Google code exchange failed (${response.status}): ${detail}`);
+    }
+    return payload as unknown as GoogleTokenResponse;
   }
 
   /**

@@ -42,6 +42,27 @@ export type SyntxToolContent = ContentBlock;
  */
 export type SyntxToolResult = CallToolResult;
 
+/**
+ * Capability inventory for a tool (I3, v0.3.0).
+ *
+ * Declares the security-relevant effects a tool can have so the server can
+ * enforce policy generically (e.g. rejecting `localFileRead` arguments over
+ * the HTTP transport) and so operators can audit the attack surface without
+ * reading every handler. All flags default to `false` when omitted.
+ */
+export interface SyntxToolCapability {
+  /** Reads files from the MCP server's local filesystem (e.g. `path` input). */
+  localFileRead?: boolean;
+  /** Mutates authentication state (installs/replaces the bearer token). */
+  authMutation?: boolean;
+  /** Sends local/user-supplied content to an external service. */
+  externalExfiltration?: boolean;
+  /** Performs an outbound network call. */
+  networkCall?: boolean;
+  /** Incurs a billable side effect (token spend, email/SMS delivery, …). */
+  costSideEffect?: boolean;
+}
+
 export interface McpContext {
   /** Active SyntxClient. Token can be swapped at runtime via `setToken`. */
   readonly syntx: import('../syntx-client').SyntxClient;
@@ -94,6 +115,11 @@ export interface SyntxTool {
   description: string;
   /** JSON Schema for the tool arguments. */
   inputSchema: Tool['inputSchema'];
+  /**
+   * Security-relevant capability inventory (I3). Used by the server for
+   * generic runtime enforcement and by operators for attack-surface audits.
+   */
+  capability?: SyntxToolCapability;
   /**
    * Tool handler. The optional {@link SyntxToolExtra} carries progress /
    * logging notifications; legacy callers can simply ignore it.

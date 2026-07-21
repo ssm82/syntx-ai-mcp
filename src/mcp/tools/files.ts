@@ -1,16 +1,21 @@
 import type { SyntxTool } from '../registry';
 import { textResult, toMcpError } from '../errors';
 import {
+  assertPathSourceAllowed,
+  resolveAllowedRoots,
   resolveFileInputs,
+  resolveSafePath,
   MAX_FILE_SIZE,
   MAX_FILES_PER_CALL,
   type FileInputSpec,
 } from './file-input';
+import { logSecurityEvent } from '../security-log';
 
 /** File management tools (uploaded files listing, upload, deletion). */
 export const filesTools: SyntxTool[] = [
   {
     name: 'list-uploaded-files',
+    capability: { networkCall: true },
     description: 'List files previously uploaded to the syntx.ai account.',
     inputSchema: {
       type: 'object',
@@ -40,6 +45,7 @@ export const filesTools: SyntxTool[] = [
   },
   {
     name: 'upload-files',
+    capability: { localFileRead: true, externalExfiltration: true, networkCall: true, costSideEffect: true },
     description:
       'Upload one or more files to the syntx.ai account. ' +
       'Each file entry accepts either `path` (server-side file path, e.g. "C:\\photo.jpg") ' +
@@ -95,6 +101,37 @@ export const filesTools: SyntxTool[] = [
     async handler(args, ctx) {
       try {
         const items = (args.files as FileInputSpec[] | undefined) ?? [];
+        const transport = ctx.config.transport;
+
+        // H1: reject `path` inputs over non-stdio transports BEFORE doing
+        // any filesystem work. Remote clients must use `content_base64`.
+        for (const item of items) {
+          const hasPath = typeof item.path === 'string' && item.path.length > 0;
+          if (hasPath) {
+            assertPathSourceAllowed('path', transport);
+          }
+        }
+
+        // For stdio, validate every `path` entry is inside the allow-list
+        // (anti-symlink-escape, anti-special-files, anti-`/etc/passwd`).
+        // For HTTP, the guard above is sufficient; any `path` that slips
+        // through (none should) would already be rejected.
+        const allowedRoots = resolveAllowedRoots().roots;
+        for (const item of items) {
+          if (typeof item.path === 'string' && item.path.length > 0) {
+            try {
+              resolveSafePath(item.path, allowedRoots);
+            } catch (err) {
+              logSecurityEvent({
+                kind: 'upload-files.path.rejected',
+                transport,
+                reason: err instanceof Error ? err.message : String(err),
+              });
+              throw err;
+            }
+          }
+        }
+
         const resolved = await resolveFileInputs(items);
         const checkDuplicates = args.check_duplicates === undefined
           ? true
@@ -117,6 +154,7 @@ export const filesTools: SyntxTool[] = [
   },
   {
     name: 'delete-file',
+    capability: { networkCall: true },
     description: 'Permanently delete an uploaded file by its id.',
     inputSchema: {
       type: 'object',

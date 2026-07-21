@@ -1,6 +1,6 @@
 {
   "name": "syntx-ai-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "MCP server and TypeScript SDK for the syntx.ai AI platform",
   "license": "MIT",
   "author": "syntx-ai-mcp contributors",
