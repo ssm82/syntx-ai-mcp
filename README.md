@@ -832,6 +832,8 @@ npm run dev          # сборка в watch-режиме
 
 Аналогично для ресурсов (`src/mcp/resources/`) и промптов (`src/mcp/prompts/`). Детально — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+**Agent skills (каталог `skills/`).** В корне репозитория также живут [Anthropic-совместимые](https://agentskills.io/specification) skills для AI-агентов, использующих MCP: каждый skill — это папка `skills/<name>/SKILL.md` (≤ 500 строк) с YAML-frontmatter (`name`, `description`, `license`, `compatibility`, `metadata`), необязательными `references/` и `assets/`. Skill публикуется в git вместе с кодом; на машине пользователя Kilo подхватывает его после копирования в `~/.config/kilo/skills/`. Версия `metadata.version` синхронизируется с `package.json:version`.
+
 ---
 
 ## Как это работает
@@ -873,6 +875,7 @@ syntx.ai API   https://api.syntx.ai
 - [CHANGELOG.md](CHANGELOG.md) — история релизов.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — правила участия, стиль кода, советы по PR.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — послойное описание архитектуры.
+- [`skills/`](skills/) — Anthropic-совместимые agent skills. В [`skills/syntx-ai-mcp-usage/SKILL.md`](skills/syntx-ai-mcp-usage/SKILL.md) — операционные знания для агентов, вызывающих `syntx-ai-mcp_*` инструменты (lifecycle чатов, выбор модели, recovery после timeout, security caveats).
 
 ---
 
