@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Email-OTP authentication flow** mirroring the `requests.js` snapshot:
+  - SDK: `syntx.auth.sendEmailOtp(email, opts?)`,
+    `syntx.auth.verifyEmailOtp(email, otpCode, opts?)` (auto-installs the JWT),
+    and a callback-driven `syntx.auth.loginWithEmail(email, opts?)`.
+  - MCP tools: `send-email-otp` and `verify-email-otp` (mirrors the
+    `start-telegram-auth` / `poll-telegram-auth` split; no one-shot equivalent
+    because the OTP comes from the user's inbox, not a server-side session).
+  - New types: `EmailOtpSendResult`, `EmailOtpVerifyResult`, `EmailOtpOptions`
+    in `src/types.ts`.
+  - README section "Авторизация через Email (OTP)" + updated tools / SDK
+    tables.
+
+### Changed
+- **Breaking:** `SyntxAuth.loginWithEmail(email, password)` (placeholder,
+  pointed at a non-existent `/api/v1/auth/login`) was removed and replaced by
+  the new `loginWithEmail(email, opts?)` whose signature is incompatible with
+  the old one. No callers were found in-tree.
+
 ## [0.2.0] — 2026-07-17
 
 ### Added

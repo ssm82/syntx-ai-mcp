@@ -41,6 +41,7 @@
 - [Промпты (Prompts)](#промпты-prompts)
 - [Безопасность](#безопасность)
 - [Troubleshooting](#troubleshooting)
+- [Авторизация через Telegram (device flow)](#авторизация-через-telegram-device-flow)
 - [Программное использование (SDK)](#программное-использование-sdk)
 - [Примеры](#примеры)
 - [Разработка](#разработка)
@@ -300,6 +301,11 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 | `get-profile` | Полный профиль пользователя; при отсутствии токена возвращает понятную MCP-ошибку. | — |
 | `set-token` | Установить/заменить токен в рантайме (только в памяти — не переживает рестарт). | `token`* |
 | `validate-token` | Проверить валидность текущего токена. | — |
+| `start-telegram-auth` | Стартует сессию авторизации через Telegram (`POST /api/v1/auth/startauth`) и возвращает UUID + `t.me` deep-link. Пользователь должен открыть ссылку и нажать Start в боте. | `bot_username?` |
+| `poll-telegram-auth` | Поллит `GET /api/v1/auth/token/{uuid}`. Когда `complete: true`, устанавливает JWT как активный bearer-токен. | `uuid*`, `install_token?` |
+| `login-telegram` | One-shot flow: создать сессию → вернуть ссылку → поллить до получения JWT → установить токен. Блокирует до `timeout_ms`. | `bot_username?`, `poll_interval_ms?`, `timeout_ms?` |
+| `send-email-otp` | Запрашивает OTP на e-mail через `POST /api/v1/auth/email/send-otp`. Токен не устанавливает. | `email*`, `ref_uuid?`, `utm?` |
+| `verify-email-otp` | Проверяет OTP и устанавливает JWT (`POST /api/v1/auth/email/verify-otp`). По умолчанию `install_token: true`. | `email*`, `otp_code*`, `ref_uuid?`, `utm?`, `install_token?` |
 
 > `whoami` и `get-profile` различаются **семантикой ошибок**, а не составом полей (оба берут данные из одного `user.me()`). Используйте `whoami` для проверки статуса аутентификации без риска получить ошибку, `get-profile` — когда нужен полный профиль и готов обработать ошибку при отсутствии токена.
 
@@ -514,7 +520,7 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 
 ## Безопасность
 
-- **Токен syntx.ai (`SYNTX_TOKEN` / `set-token`) хранится только в памяти** — не пишется на диск, не переживает рестарт процесса, не логируется сервером. При `set-token` токен проходит через JSON-RPC-канал (по сети при HTTP-транспорте) — учитывайте логи вашего MCP-клиента.
+- **Токен syntx.ai (`SYNTX_TOKEN` / `set-token` / Telegram-flow) хранится только в памяти** — не пишется на диск, не переживает рестарт процесса, не логируется сервером. При `set-token` токен проходит через JSON-RPC-канал (по сети при HTTP-транспорте) — учитывайте логи вашего MCP-клиента.
 - **HTTP-транспорт** по умолчанию слушает только `127.0.0.1` и **не имеет аутентификации**, пока не задан `MCP_HTTP_TOKEN`. Защита от DNS-rebinding обеспечивается Host/Origin allow-list (всегда включён). Для запуска вне loopback **обязательно** задайте `MCP_HTTP_TOKEN` и оградите порт файрволом/реверс-прокси.
 - **Stateless HTTP = single-user loopback.** `set-token` меняет токен для всего процесса, поэтому HTTP-транспорт не предназначен для многопользовательского использования — один клиент установит токен, общий для всех.
 - **`transcribe` с `path`** разрешён только при stdio-транспорте; при HTTP отклоняется (защита от произвольного чтения файлов сервера — LFI).
@@ -534,6 +540,137 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 | Запрос долго висит | Малый `SYNTX_POLL_TIMEOUT` / большой `SYNTX_TIMEOUT` | Настройте таймауты под задачу |
 | Модель не найдена | Неверный `model_type` | Вызовите `list-models`, затем `set-default-model` |
 | `transcribe` отклоняет `path` | Используется HTTP-транспорт | Передайте аудио через `content_base64` |
+| `login-telegram` висит до таймаута | Пользователь не открыл deep-link или не нажал Start в боте | Откройте `deep_link` из результата `start-telegram-auth` в Telegram, нажмите Start, затем повторите `poll-telegram-auth` |
+| `poll-telegram-auth` возвращает `valid: false` | UUID устарел / не существует | Создайте новую сессию через `start-telegram-auth` |
+| `verify-email-otp` возвращает `token_installed: false` | Сервер не вернул поле `token` в ожидаемом месте | Загляните в `result` ответа и при необходимости вызовите `set-token` вручную |
+| `send-email-otp` падает с 4xx | Невалидный e-mail, превышен rate-limit или e-mail уже использован | Проверьте адрес, подождите и повторите; для Telegram/Google используйте соответствующие flow |
+
+---
+
+## Авторизация через Telegram (device flow)
+
+syntx.ai поддерживает вход через Telegram-бот `@syntxaibot` без ручного копирования токена. Flow построен на **device authorization**: сервер выдаёт UUID-сессию, пользователь подтверждает её в Telegram, а клиент поллит состояние.
+
+```
+1. start-telegram-auth            → { uuid, deep_link }
+2. (пользователь открывает deep_link и нажимает Start в @syntxaibot)
+3. poll-telegram-auth (или login-telegram) → JWT устанавливается в рантайме
+```
+
+### Через MCP-инструменты
+
+**Одношаговый flow** (для headless-драйверов, которые могут передать ссылку пользователю):
+
+```json
+{
+  "name": "login-telegram",
+  "arguments": { "timeout_ms": 300000 }
+}
+```
+
+Возвращает `{ ok: true, deep_link, uuid, token_installed: true }`. Блокирует до 5 минут (настраивается через `timeout_ms`).
+
+**Двухшаговый flow** (когда нужно отделить показ ссылки от ожидания):
+
+```json
+// 1. Создать сессию и получить ссылку
+{ "name": "start-telegram-auth", "arguments": { "bot_username": "syntxaibot" } }
+// → { uuid: "a302de6c-…", deep_link: "https://telegram.me/syntxaibot?start=auth_a302de6c-…" }
+
+// 2. (пользователь нажал Start в боте)
+
+// 3. Забрать токен
+{ "name": "poll-telegram-auth", "arguments": { "uuid": "a302de6c-…" } }
+// → { valid: true, complete: true, token: "eyJhbGc…", token_installed: true }
+```
+
+### Через SDK
+
+```ts
+import { SyntxClient } from 'syntx-ai-mcp';
+
+const syntx = new SyntxClient();
+
+// Одношаговый flow
+const result = await syntx.auth.loginWithTelegram({
+  botUsername: 'syntxaibot',
+  pollIntervalMs: 3000,
+  timeoutMs: 5 * 60_000,
+  onLink: (deepLink, uuid) => console.log('Откройте:', deepLink),
+});
+console.log('JWT:', result.token); // уже установлен как Bearer
+
+// Двухшаговый flow
+const { uuid } = await syntx.auth.startAuth();
+const link = syntx.auth.getTelegramAuthLink(uuid);
+// …пользователь нажимает Start в боте…
+const status = await syntx.auth.pollAuthToken(uuid);
+if (status.complete && status.token) {
+  syntx.auth.setToken(status.token);
+}
+```
+
+> **Где живёт токен:** как и `set-token`, Telegram-flow хранит JWT только в памяти процесса. После рестарта MCP-сервера нужно снова пройти авторизацию. Не передавайте токены в query-параметрах — только в `Authorization: Bearer`.
+
+---
+
+## Авторизация через Email (OTP)
+
+syntx.ai поддерживает вход по одноразовому коду, отправляемому на e-mail. Flow двухшаговый — сервер **не** хранит сессию, доступную для поллинга, поэтому в отличие от Telegram здесь нет «one-shot» MCP-инструмента: пользователь должен физически прочитать код из письма.
+
+```
+1. send-email-otp         → { ok: true, hint: "проверьте почту" }
+2. (пользователь читает OTP из письма)
+3. verify-email-otp       → { token_installed: true, … }
+```
+
+### Через MCP-инструменты
+
+```jsonc
+// 1. Запросить код
+{
+  "name": "send-email-otp",
+  "arguments": { "email": "user@example.com", "utm": "" }
+}
+// → { "ok": true, "email": "user@example.com", "hint": "Ask the user for the OTP …" }
+
+// 2. (пользователь вводит код из письма)
+
+// 3. Подтвердить код и установить токен
+{
+  "name": "verify-email-otp",
+  "arguments": {
+    "email": "user@example.com",
+    "otp_code": "866735",
+    "install_token": true
+  }
+}
+// → { "ok": true, "token_installed": true, "result": { "token": "eyJ…" } }
+```
+
+`ref_uuid` / `utm` нужно передавать в оба вызова с одинаковыми значениями — они форвардятся в JSON-тело запроса как есть.
+
+### Через SDK
+
+```ts
+import { SyntxClient } from 'syntx-ai-mcp';
+
+const syntx = new SyntxClient();
+
+// Двухшаговый flow — если у вас есть способ спросить код у пользователя
+await syntx.auth.sendEmailOtp('user@example.com', { utm: '' });
+const code = await askUserForOtp();        // любой UI / prompt / RPC
+const result = await syntx.auth.verifyEmailOtp('user@example.com', code, { utm: '' });
+// result.token уже установлен как Bearer-токен
+
+// One-shot flow — когда есть готовый колбэк
+const { token } = await syntx.auth.loginWithEmail('user@example.com', {
+  utm: '',
+  otpProvider: async () => askUserForOtp(),
+});
+```
+
+> **Где живёт токен:** то же правило, что и для Telegram-flow — JWT хранится только в памяти процесса. После рестарта MCP-сервера нужно снова пройти авторизацию.
 
 ---
 
@@ -578,7 +715,7 @@ await runTransport(factory, 'stdio', 3000);
 
 | Группа | Методы |
 |---|---|
-| `syntx.auth` | `setToken`, `getToken`, `isAuthenticated`, `validateToken`, `logout` |
+| `syntx.auth` | `setToken`, `getToken`, `isAuthenticated`, `validateToken`, `logout`, `sendEmailOtp`, `verifyEmailOtp`, `loginWithEmail` |
 | `syntx.ai` | `listServices`, `listModels`, `getModelInfo` |
 | `syntx.user` | `me`, `getBalance`, `getSubscription`, `getSettings` |
 | `syntx.chats` | `list`, `create`, `getMessages`, `sendMessage`, `waitForResponse`, `pollForResponse`, `streamResponse`, `generateTitle`, `delete`, `pin`, `moveToFolder`, `uploadFiles`, `getUploadedFiles`, `deleteFile`, `transcribe` |

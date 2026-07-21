@@ -129,6 +129,67 @@ export interface Subscription {
 }
 
 /**
+ * Result of POST /api/v1/auth/startauth.
+ * Server creates a pending auth session and returns its UUID.
+ * The user must complete auth via the chosen provider (e.g. by pressing Start
+ * in the Telegram bot at `https://telegram.me/<bot>?start=auth_<uuid>`).
+ */
+export interface AuthStart {
+  uuid: string;
+}
+
+/**
+ * Result of GET /api/v1/auth/token/{uuid}.
+ * - `valid: false, complete: false` — unknown / expired session
+ * - `valid: true, complete: false`  — pending; user has not finished yet
+ * - `valid: true, complete: true, token` — auth done, JWT included
+ */
+export interface AuthTokenStatus {
+  valid: boolean;
+  complete: boolean;
+  token?: string;
+}
+
+/**
+ * Result of POST /api/v1/auth/email/send-otp.
+ *
+ * The server's exact response shape is not pinned by the public API; only the
+ * "request accepted" status matters to the SDK. The shape is intentionally
+ * loose so we can surface unexpected fields back to the caller (and to logs)
+ * without a contract churn.
+ */
+export interface EmailOtpSendResult {
+  ok?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Result of POST /api/v1/auth/email/verify-otp.
+ *
+ * On success the server returns a JWT somewhere in this object — typically
+ * as `token`. If the actual contract nests it (e.g. `data.token` or sets it
+ * via a cookie) `token` will be `undefined` and the SDK will skip auto-install;
+ * callers can still read the raw fields via `[key: string]: unknown`.
+ */
+export interface EmailOtpVerifyResult {
+  token?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Options accepted by the email-OTP auth methods.
+ *
+ * Both fields map directly onto the JSON body the syntx.ai API expects:
+ *   `{ email, otp_code, ref_uuid?, utm? }`
+ */
+export interface EmailOtpOptions {
+  /** Referral UUID, forwarded as-is. Mirrors the `ref_uuid` field in `requests.js`. */
+  ref_uuid?: string | null;
+  /** UTM tag for attribution. Mirrors the `utm` field in `requests.js`. */
+  utm?: string;
+}
+
+/**
  * User settings from /api/v1/user/settings
  */
 export interface UserSettings {
