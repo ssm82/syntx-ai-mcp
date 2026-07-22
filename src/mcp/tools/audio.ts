@@ -146,4 +146,32 @@ export const audioTools: SyntxTool[] = [
       }
     },
   },
+  {
+    name: 'list-voice-examples',
+    capability: { networkCall: true },
+    description:
+      'List ElevenLabs voice examples (preview clips and metadata). Mirrors `syntx.audio.listVoiceExamples`. ' +
+      'Hits `GET /api/v1/audio/elevenlabs/voice_examples`. Use `search` to narrow by name/label.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        page: { type: 'number', minimum: 1, description: '1-based page number.' },
+        page_size: { type: 'number', minimum: 1, maximum: 100, description: 'Items per page.' },
+        search: { type: 'string', description: 'Case-insensitive substring against voice name/label.' },
+      },
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const params: { page?: number; page_size?: number; search?: string } = {};
+      if (args.page !== undefined) params.page = Number(args.page);
+      if (args.page_size !== undefined) params.page_size = Number(args.page_size);
+      if (args.search !== undefined) params.search = String(args.search);
+      try {
+        const result = await ctx.syntx.audio.listVoiceExamples(params);
+        return textResult(JSON.stringify(result, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'list-voice-examples');
+      }
+    },
+  },
 ];

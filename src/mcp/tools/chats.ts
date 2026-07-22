@@ -285,6 +285,121 @@ export const chatsTools: SyntxTool[] = [
       }
     },
   },
+  {
+    name: 'delete-chat',
+    capability: { networkCall: true },
+    description:
+      'Permanently delete a chat. Mirrors `syntx.chats.delete`. Issues ' +
+      '`DELETE /api/v1/chats/{chat_id}`. This action is destructive and cannot be undone.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chat_id: { type: 'string', description: 'Chat UUID or numeric id (required).' },
+      },
+      required: ['chat_id'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const chatId = String(args.chat_id ?? '').trim();
+      if (!chatId) {
+        return toMcpError(new Error('"chat_id" must be a non-empty string'), 'delete-chat');
+      }
+      try {
+        await ctx.syntx.chats.delete(chatId);
+        return textResult(`Deleted chat ${chatId}.`);
+      } catch (err) {
+        return toMcpError(err, 'delete-chat');
+      }
+    },
+  },
+  {
+    name: 'pin-chat',
+    capability: { networkCall: true },
+    description:
+      'Toggle pin/unpin for a chat. Mirrors `syntx.chats.pin`. Issues ' +
+      '`POST /api/v1/chats/{chat_id}/pin`. The endpoint toggles pinned state, so call again to undo.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chat_id: { type: 'string', description: 'Chat UUID or numeric id (required).' },
+      },
+      required: ['chat_id'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const chatId = String(args.chat_id ?? '').trim();
+      if (!chatId) {
+        return toMcpError(new Error('"chat_id" must be a non-empty string'), 'pin-chat');
+      }
+      try {
+        await ctx.syntx.chats.pin(chatId);
+        return textResult(`Toggled pin state for chat ${chatId}.`);
+      } catch (err) {
+        return toMcpError(err, 'pin-chat');
+      }
+    },
+  },
+  {
+    name: 'move-chat-to-project',
+    capability: { networkCall: true },
+    description:
+      'Move a chat into a project (folder). Mirrors `syntx.chats.moveToFolder`. ' +
+      'Issues `POST /api/v1/chats/{chat_id}/move` with `{ folder_id }`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chat_id: { type: 'string', description: 'Chat UUID or numeric id (required).' },
+        folder_id: { type: 'string', description: 'Destination folder UUID (required).' },
+      },
+      required: ['chat_id', 'folder_id'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const chatId = String(args.chat_id ?? '').trim();
+      const folderId = String(args.folder_id ?? '').trim();
+      if (!chatId) {
+        return toMcpError(new Error('"chat_id" must be a non-empty string'), 'move-chat-to-project');
+      }
+      if (!folderId) {
+        return toMcpError(new Error('"folder_id" must be a non-empty string'), 'move-chat-to-project');
+      }
+      try {
+        await ctx.syntx.chats.moveToFolder(chatId, folderId);
+        return textResult(`Moved chat ${chatId} to project ${folderId}.`);
+      } catch (err) {
+        return toMcpError(err, 'move-chat-to-project');
+      }
+    },
+  },
+  {
+    name: 'get-favorite-messages',
+    capability: { networkCall: true },
+    description:
+      'Return the favorite (bookmarked) messages for a chat. Mirrors `syntx.chats.getFavoriteMessages`. ' +
+      'Hits `GET /api/v1/chats/favorite/{chat_id}/messages`. This is the only way to read ' +
+      'starred messages through MCP — `get-messages` does not include them.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chat_id: { type: 'string', description: 'Chat UUID or numeric id (required).' },
+        page_size: { type: 'number', minimum: 1, maximum: 100 },
+        direction: { type: 'string', enum: ['older', 'newer'] },
+      },
+      required: ['chat_id'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      try {
+        const result = await ctx.syntx.chats.getFavoriteMessages(String(args.chat_id), {
+          page_size: args.page_size as number | undefined,
+          direction: args.direction as 'older' | 'newer' | undefined,
+        });
+        return textResult(JSON.stringify(result, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'get-favorite-messages');
+      }
+    },
+  },
 ];
 
 /**

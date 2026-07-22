@@ -11,6 +11,47 @@ import { textResult, toMcpError, toolError } from '../errors';
  */
 export const foldersTools: SyntxTool[] = [
   {
+    name: 'list-projects',
+    capability: { networkCall: true },
+    description:
+      'List projects (a.k.a. folders) for a given scope. Mirrors `syntx.folders.listTextFolders` ' +
+      '/ `listImageFolders` / `listVideoFolders` / `listAudioFolders`. Hits ' +
+      '`GET /api/v1/folders/{scope}/list`. Returns an array of `Folder` items.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: {
+          type: 'string',
+          enum: ['text', 'image', 'video', 'audio'],
+          default: 'text',
+          description: 'Project scope. Defaults to "text" (matches the web client).',
+        },
+      },
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const scope = (args.scope as 'text' | 'image' | 'video' | 'audio' | undefined) ?? 'text';
+      try {
+        const folders = await (() => {
+          switch (scope) {
+            case 'image':
+              return ctx.syntx.folders.listImageFolders();
+            case 'video':
+              return ctx.syntx.folders.listVideoFolders();
+            case 'audio':
+              return ctx.syntx.folders.listAudioFolders();
+            case 'text':
+            default:
+              return ctx.syntx.folders.listTextFolders();
+          }
+        })();
+        return textResult(JSON.stringify(folders, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'list-projects');
+      }
+    },
+  },
+  {
     name: 'create-project',
     capability: { networkCall: true },
     description:
