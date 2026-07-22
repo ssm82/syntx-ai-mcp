@@ -43,6 +43,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **M4 — CI security gates.** New `security` job: `npm audit
   --omit=dev --audit-level=high`, `google/osv-scanner-action@v2`, and
   `gitleaks/gitleaks-action@v2`.
+- **Polling / transport reliability (P0–P3).**
+  - `pollForResponse` now emits an `onProgress(elapsed, total)` heartbeat
+    on every tick; MCP tools forward it as `notifications/progress` so
+    clients with `resetTimeoutOnProgress` survive long generations.
+  - `WaitForResponseOptions.signal` (an `AbortSignal`) is honoured by the
+    poll loop — when the MCP request is cancelled or the client
+    disconnects, the wait rejects promptly with `SyntxAbortError` instead
+    of polling until the timeout. `SyntxToolExtra` now exposes `signal`.
+  - New exported error classes: `SyntxTimeoutError` (carrying `chatId`,
+    `elapsedMs`, `timeoutMs` for self-service recovery) and
+    `SyntxAbortError`. `toMcpError` renders a structured message with a
+    recovery hint ("recover with `get-messages` / `wait-for-response`,
+    do NOT re-send the prompt").
+  - `BaseClient` now retries idempotent GET requests on 408/429/5xx and
+    network failures with exponential backoff + jitter (base 500 ms, cap
+    8 s, max 3 attempts). `Retry-After` is honoured for 429 **and** 5xx,
+    clamped to 60 s so a malicious or buggy upstream cannot park the
+    caller. `POST` / `PATCH` / `DELETE` are never auto-retried — re-sending
+    a chat message would double the token spend. New `maxRetries` option
+    on `SyntxClientConfig`.
+  - New `BaseClient.postForm()` shared by `ChatsResource.uploadFiles`
+    and `ChatsResource.transcribe`; uploads now route through the same
+    timeout / auth / error-mapping pipeline (401 → `SyntxAuthError`,
+    30 s → 5 min timeout override).
+
+### Changed
+
+- **Breaking:** `WaitForResponseOptions.pollInterval` is now an adaptive
+  ceiling rather than a fixed inter-poll delay. The first tick fires
+  near `0.4 × pollInterval` and backs off ×1.5 up to the configured
+  value. Quick replies surface faster; long generations cost fewer
+  requests. The option name and units are unchanged.
+- **Breaking:** `pollForResponse` now uses a single wall-clock `timeout`
+  budget shared by the in-progress pre-wait and the reply poll. Prior
+  versions gave each phase its own budget (worst case ~2× `timeout`).
+  Pre-existing callers who relied on the longer worst case should
+  increase `timeout` accordingly.
+- `toMcpError` timeout output text is now a structured string
+  (`Timeout waiting for response in chat <id> (elapsed X ms of Y ms
+  budget). The chat persists on the server — recover with
+  get-messages(chat_id="<id>") … Do NOT re-send the prompt.`) — the
+  original `Timeout waiting for response in chat <id>` prefix is
+  preserved at the start. Any consumer pattern-matching the full
+  string should switch to matching the prefix only.
 
 ## [Unreleased]
 

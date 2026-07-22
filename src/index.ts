@@ -8,7 +8,7 @@ export {
   type StreamingMessage,
   type SyntxWebSocketOptions,
 } from './websocket';
-export { SyntxAPIError, SyntxAuthError } from './errors';
+export { SyntxAPIError, SyntxAuthError, SyntxAbortError, SyntxTimeoutError } from './errors';
 
 export * from './types';
 

@@ -145,11 +145,17 @@ export const chatsTools: SyntxTool[] = [
       required: ['chat_id'],
       additionalProperties: false,
     },
-    async handler(args, ctx) {
+    async handler(args, ctx, extra) {
       try {
         const { text, message } = await ctx.syntx.chats.waitForResponse(String(args.chat_id), {
           timeout: (args.timeout as number | undefined) ?? ctx.config.pollTimeout,
           pollInterval: (args.poll_interval as number | undefined) ?? ctx.config.pollInterval,
+          signal: extra?.signal,
+          // Heartbeat: each poll tick emits notifications/progress so MCP
+          // clients with resetTimeoutOnProgress survive long generations.
+          onProgress: (elapsed, total) => {
+            void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
+          },
         });
         return textResult(
           `Assistant reply:\n\n${text}\n\n--- metadata ---\n${JSON.stringify(message, null, 2)}`,
@@ -212,7 +218,7 @@ export const chatsTools: SyntxTool[] = [
 
         // `poll` — pure REST: create + send + poll. No streaming attempted.
         if (mode === 'poll') {
-          const { uuid, text } = await pollAsk(prompt, args, ctx);
+          const { uuid, text } = await pollAsk(prompt, args, ctx, extra);
           return textResult(`chat_uuid: ${uuid}\n\n${text}`);
         }
 
@@ -416,6 +422,7 @@ async function pollAsk(
   prompt: string,
   args: Record<string, unknown>,
   ctx: McpContext,
+  extra?: import('../registry').SyntxToolExtra,
 ): Promise<{ uuid: string; text: string }> {
   const { uuid } = await ctx.syntx.chats.create({
     title: (args.title as string | undefined) ?? prompt.slice(0, 60),
@@ -433,6 +440,10 @@ async function pollAsk(
   const { text } = await ctx.syntx.chats.waitForResponse(uuid, {
     timeout: (args.timeout as number | undefined) ?? ctx.config.pollTimeout,
     pollInterval: (args.poll_interval as number | undefined) ?? ctx.config.pollInterval,
+    signal: extra?.signal,
+    onProgress: (elapsed, total) => {
+      void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
+    },
   });
   return { uuid, text };
 }
@@ -472,6 +483,10 @@ async function streamAsk(
     scope,
     model: modelType,
     aiName,
+    signal: _extra?.signal,
+    onProgress: (elapsed, total) => {
+      void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
+    },
     onSession: (uuid) => {
       chatUuid = uuid;
     },

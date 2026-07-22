@@ -456,10 +456,34 @@ export type InProgressResponse = InProgressItem[];
  */
 export interface WaitForResponseOptions {
   timeout?: number;
+  /**
+   * Polling ceiling in milliseconds. The poll loop is adaptive: it starts
+   * near `0.4 × pollInterval` and backs off geometrically (×1.5) up to this
+   * value, so quick replies are seen fast while long generations cost few
+   * requests.
+   *
+   * **Breaking change in 0.3.0:** prior versions used a fixed delay
+   * between polls. The option name and units are unchanged but the value
+   * is now an upper bound on the (growing) interval, not a constant.
+   */
   pollInterval?: number;
   boundary?: string;
   pageSize?: number;
   preWaitTimeout?: number;
+  /**
+   * Cancellation signal. Checked between poll ticks and during sleeps —
+   * when aborted, the wait rejects promptly with `SyntxAbortError` instead
+   * of polling until the timeout. MCP tools wire this to the request
+   * cancellation signal so a disconnected client stops server-side polling.
+   */
+  signal?: AbortSignal;
+  /**
+   * Heartbeat fired once per poll tick with the elapsed time and total
+   * budget. MCP tools forward this as `notifications/progress`, which lets
+   * clients using `resetTimeoutOnProgress` keep the request alive through
+   * long generations instead of dying with an MCP-layer timeout.
+   */
+  onProgress?: (elapsedMs: number, timeoutMs: number) => void;
   /**
    * Response strategy:
    *   - `'stream'` — open a WSS connection and consume token-by-token
@@ -528,6 +552,16 @@ export interface StreamResponseOptions {
    * Lets callers capture the UUID for follow-up messages or polling.
    */
   onSession?: (chatUuid: string) => void;
+  /**
+   * Cancellation signal honoured by the internal poll loop — see
+   * {@link WaitForResponseOptions.signal}.
+   */
+  signal?: AbortSignal;
+  /**
+   * Heartbeat fired once per poll tick while waiting for the reply — see
+   * {@link WaitForResponseOptions.onProgress}.
+   */
+  onProgress?: (elapsedMs: number, timeoutMs: number) => void;
 }
 
 /**

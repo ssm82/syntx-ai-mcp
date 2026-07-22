@@ -1,4 +1,4 @@
-import { SyntxAPIError, SyntxAuthError } from '../errors';
+import { SyntxAPIError, SyntxAuthError, SyntxAbortError, SyntxTimeoutError } from '../errors';
 import type { SyntxToolContent, SyntxToolResult } from './registry';
 
 /**
@@ -15,6 +15,24 @@ export function toMcpError(error: unknown, context?: string): SyntxToolResult {
     return toolError(
       `${prefix}Authentication required or invalid. Use the "set-token" tool to provide a valid syntx.ai token. (${error.message})`,
     );
+  }
+
+  if (error instanceof SyntxTimeoutError) {
+    // Recovery hint is the whole point of the structured error: the chat
+    // persists server-side, so the assistant can resume instead of
+    // re-sending the prompt (duplicate chat + double token spend).
+    const recovery = error.chatId
+      ? ` The chat persists on the server — recover the reply with ` +
+        `get-messages(chat_id="${error.chatId}") or resume waiting with ` +
+        `wait-for-response(chat_id="${error.chatId}"). Do NOT re-send the prompt.`
+      : '';
+    return toolError(
+      `${prefix}${error.message} (elapsed ${error.elapsedMs} ms of ${error.timeoutMs} ms budget).${recovery}`,
+    );
+  }
+
+  if (error instanceof SyntxAbortError) {
+    return toolError(`${prefix}Cancelled: ${error.message}`);
   }
 
   if (error instanceof SyntxAPIError) {

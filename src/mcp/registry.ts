@@ -26,7 +26,7 @@ import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/proto
  */
 export type SyntxToolExtra = Pick<
   RequestHandlerExtra<ServerRequest, ServerNotification>,
-  'sendNotification' | '_meta'
+  'sendNotification' | '_meta' | 'signal'
 >;
 
 /**

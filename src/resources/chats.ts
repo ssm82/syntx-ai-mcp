@@ -1,4 +1,5 @@
 import { BaseClient } from '../client';
+import { SyntxAbortError, SyntxTimeoutError } from '../errors';
 import type {
   Chat,
   MessagesResponse,
@@ -232,6 +233,8 @@ export class ChatsResource {
     const { text } = await this.pollForResponse(chatUuid, {
       timeout,
       pollInterval,
+      signal: options?.signal,
+      onProgress: options?.onProgress,
     });
 
     // The API delivers the full reply atomically, so we emit a single chunk.
@@ -257,16 +260,80 @@ export class ChatsResource {
   /**
    * Poll a chat until a new assistant message is completed.
    * Uses `created_at` boundary to ignore messages from previous requests.
+   *
+   * Behaviour notes:
+   *  - **Adaptive interval** — the first tick fires at ~`0.4 × pollInterval`
+   *    and backs off geometrically (×1.5) up to `pollInterval`, so quick
+   *    replies surface fast and long generations cost few requests.
+   *  - **Single budget** — the in-progress pre-wait and the reply poll share
+   *    one wall-clock budget (`timeout`); previously the pre-wait came on
+   *    top, doubling the worst case.
+   *  - **Heartbeat** — `onProgress(elapsed, timeout)` fires once per tick;
+   *    MCP tools forward it as `notifications/progress` so clients with
+   *    `resetTimeoutOnProgress` survive long generations.
+   *  - **Cancellation** — `signal` aborts the wait promptly with
+   *    {@link SyntxAbortError} (never counted as a poll error).
+   *  - **Timeout** — rejects with {@link SyntxTimeoutError} carrying the
+   *    chatId so callers can recover the reply later instead of re-sending.
    */
   async pollForResponse(
     chatId: string,
     options?: WaitForResponseOptions
   ): Promise<{ text: string; message: Message }> {
     const timeout = options?.timeout ?? 600000;
-    const pollInterval = options?.pollInterval ?? 5000;
+    const maxPollInterval = options?.pollInterval ?? 5000;
     const pageSize = options?.pageSize ?? 50;
     const preWaitTimeout = options?.preWaitTimeout ?? timeout;
     const maxConsecutiveErrors = 5;
+    const signal = options?.signal;
+    const onProgress = options?.onProgress;
+
+    const throwIfAborted = () => {
+      if (signal?.aborted) {
+        throw new SyntxAbortError(`Wait cancelled in chat ${chatId}`);
+      }
+    };
+
+    // Single wall-clock budget covering BOTH the in-progress pre-wait and
+    // the reply poll.
+    const start = Date.now();
+
+    // Adaptive polling: first tick at ~40% of the ceiling (bounded below so
+    // tiny custom intervals stay usable), then ×1.5 up to the ceiling.
+    let currentInterval = Math.max(
+      Math.floor(maxPollInterval * 0.4),
+      Math.min(1000, maxPollInterval),
+    );
+    const nextInterval = () => {
+      const interval = currentInterval;
+      currentInterval = Math.min(maxPollInterval, Math.floor(currentInterval * 1.5));
+      return interval;
+    };
+
+    // Abort-aware sleep: rejects immediately when the signal fires instead
+    // of waiting out the full tick.
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve, reject) => {
+        throwIfAborted();
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(new SyntxAbortError(`Wait cancelled in chat ${chatId}`));
+        };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve();
+        }, ms);
+        signal?.addEventListener('abort', onAbort, { once: true });
+      });
+
+    const heartbeat = () => {
+      if (!onProgress) return;
+      try {
+        onProgress(Date.now() - start, timeout);
+      } catch {
+        // Heartbeat is best-effort — a throwing callback must not break the wait.
+      }
+    };
 
     let boundary = options?.boundary;
     if (!boundary) {
@@ -280,24 +347,50 @@ export class ChatsResource {
     if (Array.isArray(progress) && progress.length > 0) {
       const preWaitStart = Date.now();
       while (true) {
-        await new Promise(r => setTimeout(r, pollInterval));
+        heartbeat();
+        await sleep(nextInterval());
         const p = await this.getInProgress(chatId);
         if (!Array.isArray(p) || p.length === 0) break;
+        // Honour whichever cap fires first: the dedicated pre-wait budget
+        // (caller-provided, defaults to `timeout`) or the shared wall-clock
+        // budget shared with the reply poll. Use a consistent elapsed/budget
+        // pair so `toMcpError`'s `elapsed X of Y ms` text is never wrong.
+        const elapsedFromStart = Date.now() - start;
+        if (elapsedFromStart > timeout) {
+          throw new SyntxTimeoutError(
+            `Timeout waiting for previous in-progress request to finish in chat ${chatId}`,
+            chatId,
+            elapsedFromStart,
+            timeout,
+          );
+        }
         if (Date.now() - preWaitStart > preWaitTimeout) {
-          throw new Error(`Timeout waiting for previous in-progress request to finish in chat ${chatId}`);
+          throw new SyntxTimeoutError(
+            `Timeout waiting for previous in-progress request to finish in chat ${chatId}`,
+            chatId,
+            Date.now() - preWaitStart,
+            preWaitTimeout,
+          );
         }
       }
     }
 
-    const start = Date.now();
     let consecutiveErrors = 0;
 
     while (true) {
-      if (Date.now() - start > timeout) {
-        throw new Error(`Timeout waiting for response in chat ${chatId}`);
+      throwIfAborted();
+      const elapsed = Date.now() - start;
+      if (elapsed > timeout) {
+        throw new SyntxTimeoutError(
+          `Timeout waiting for response in chat ${chatId}`,
+          chatId,
+          elapsed,
+          timeout,
+        );
       }
 
-      await new Promise(r => setTimeout(r, pollInterval));
+      heartbeat();
+      await sleep(nextInterval());
 
       try {
         const { messages } = await this.getMessages(chatId, { page_size: pageSize });
@@ -337,6 +430,7 @@ export class ChatsResource {
 
         consecutiveErrors = 0;
       } catch (err) {
+        if (err instanceof SyntxAbortError) throw err;
         consecutiveErrors++;
         if (consecutiveErrors >= maxConsecutiveErrors) {
           throw new Error(
@@ -387,23 +481,11 @@ export class ChatsResource {
     if (destination) formData.append('destination', destination);
     formData.append('check_duplicates', String(checkDuplicates));
 
-    const headers: Record<string, string> = {};
-    const token = this.client.getToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    // Note: do NOT set Content-Type for FormData — browser adds boundary automatically
-
-    const response = await fetch(`${this.client.baseURL}/api/v1/chats/upload-files`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Upload failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.data || data;
+    const data = await this.client.postForm<{ data?: UploadResult } | UploadResult>(
+      '/api/v1/chats/upload-files',
+      formData,
+    );
+    return 'data' in data && data.data ? data.data : (data as UploadResult);
   }
 
   /**
@@ -435,22 +517,11 @@ export class ChatsResource {
     const formData = new FormData();
     formData.append('file', file);
 
-    const headers: Record<string, string> = {};
-    const token = this.client.getToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    const response = await fetch(`${this.client.baseURL}/api/v1/audio/transcribe`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Transcription failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.data || data;
+    const data = await this.client.postForm<{ data?: { text: string }; text?: string }>(
+      '/api/v1/audio/transcribe',
+      formData,
+    );
+    return data.data ?? { text: data.text ?? '' };
   }
 
   /**

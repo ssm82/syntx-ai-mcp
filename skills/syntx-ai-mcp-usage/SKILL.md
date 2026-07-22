@@ -77,6 +77,7 @@ Pick the pattern by intent:
 
 - Use when the answer is the goal and you do not need to follow up.
 - Default `timeout` is **60 s**. Insufficient for prompts > ~1 500 tokens.
+- For deep-reasoning models (`gpt-5.5`, o-series, `claude-opus`, `gemini-*-thinking`) on long contexts, prefer Pattern B — `ask` is exposed to an MCP-layer timeout (`-32001`) that the tool's `timeout` parameter cannot extend. See [MCP-layer timeout vs tool-layer timeout](#mcp-layer-timeout-vs-tool-layer-timeout).
 
 ### Pattern B — Multi-turn (`create-chat` + `send-message` + `wait-for-response`)
 
@@ -121,6 +122,25 @@ For complete flow diagrams, see [`references/chat-lifecycle.md`](references/chat
 
 For prompts > ~1 500 tokens, always pass `mode: "poll"` explicitly. The default `"auto"` wastes the WSS round-trip on a known-failing path before falling back.
 
+### MCP-layer timeout vs tool-layer timeout
+
+Two distinct timeouts can fire on an `ask` call:
+
+1. **Tool-layer** — the `timeout` parameter inside `ask` (default 60 000 ms). Visible as a normal completion or a `null` result with a tool-level error message.
+2. **MCP-layer** — the JSON-RPC ceiling imposed by the MCP transport. Surfaces as `MCP error -32001: Request timed out` **regardless of the `timeout` value passed to `ask`**.
+
+When the server takes longer to generate than the MCP layer allows, `ask` fails with `-32001` even though its internal timer would have waited longer. This is the failure mode observed on chat `uuid=222646e9-07b5-4150-a606-2eea4587af92` with `gpt-5.5` on a ~250-line analytical prompt — the first `ask` returned `-32001`; the retry using the Pattern B triad with `wait-for-response(timeout=240000)` succeeded in ~73 s. `ask`'s `timeout` parameter could not have rescued it because the failure happens above the tool.
+
+**Rule of thumb**: for prompts to deep-reasoning models on contexts > ~1 500 tokens, skip `ask` entirely and go straight to the triad. `send-message` is non-blocking (no MCP ceiling), and only `wait-for-response` blocks — and it accepts an explicit `timeout` you control:
+
+```text
+create-chat(title, scope="text")            # save uuid
+send-message(chat_id=<uuid>, prompt=...)    # non-blocking, MCP returns immediately
+wait-for-response(chat_id=<uuid>, timeout=240000, poll_interval=10000)
+```
+
+Practical timings observed on `gpt-5.5` (chat `222646e9-…`): ~73 s for an 8-question review of a structured plan digest. Set `wait-for-response.timeout` to at least **180 000 ms**, ideally **240 000 — 300 000 ms**, for this model class.
+
 See [`references/failure-modes.md`](references/failure-modes.md) for symptom → fix mapping.
 
 ## Authentication
@@ -158,6 +178,7 @@ Quick index — full details in [`references/failure-modes.md`](references/failu
 
 - **`400 — model not found`** → call `list-models(ai_name=...)`, copy exact `value` into `model_type`.
 - **`ask` timeout (>60 s)** → chat already created server-side; do **not** re-call `ask`. Use Pattern C recovery.
+- **`ask` returns `MCP error -32001: Request timed out`** → MCP-layer timeout fired before the tool-layer `timeout`; the chat is already created server-side. Do **not** retry `ask` (same failure will recur). For long prompts to deep models, go straight to Pattern B (`create-chat` + `send-message` + `wait-for-response`) with explicit `timeout` on `wait-for-response` — for one-off `ask` failures on short prompts, Pattern C recovery is fine. See [MCP-layer timeout vs tool-layer timeout](#mcp-layer-timeout-vs-tool-layer-timeout).
 - **`completed: false` with empty text in `get-messages`** → assistant still generating; `wait-for-response` with longer timeout, or sleep + re-poll.
 - **Token missing / 401** → `set-token` then `validate-token` (or `whoami`) to confirm.
 - **`upload-files` permission/path error over HTTP** → transport guard rejected `path`; switch to `content_base64`.
