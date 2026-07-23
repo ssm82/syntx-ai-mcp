@@ -8,6 +8,7 @@ Symptom → fix recipes for the common failure modes when operating `syntx-ai-mc
 - [ask timeout (recovery)](#ask-timeout-recovery)
 - [completed: false with empty text](#completed-false-with-empty-text)
 - [Token missing or 401](#token-missing-or-401)
+- [Attached file not recognized by AI](#attached-file-not-recognized-by-ai)
 - [upload-files path rejected over HTTP](#upload-files-path-rejected-over-http)
 - [transcribe path rejected over HTTP](#transcribe-path-rejected-over-http)
 - [generate-image requires a chat_uuid](#generate-image-requires-a-chat_uuid)
@@ -75,6 +76,23 @@ See [`chat-lifecycle.md`](chat-lifecycle.md) for full diagrams and the worked re
 4. Retry the failed call.
 
 The JWT is in-memory only — lost on server restart. For HTTP transport deployments, prefer setting `SYNTX_TOKEN` in the server's environment.
+
+## Attached file not recognized by AI ("вы не прикрепили файл")
+
+**Symptom:** After sending a message with an attached file via `send-message`, the AI replies that no file was attached (e.g., *"вы не прикрепили файл к сообщению"*).
+
+**Cause:** The attachment's `object_type` in the API request was set to `"file"`, which is not a valid input type. The syntx.ai API silently drops attachment objects with unrecognized `object_type` values. Only `"filetext"` is accepted for non-media files.
+
+**Fix:** The MCP server now maps all non-media MIME types to `object_type: "filetext"` automatically (since v0.2.0). Ensure you are running the latest build. If you are writing a custom caller:
+
+1. For text documents, PDFs, and other non-media files → use `object_type: "filetext"`.
+2. For images → `object_type: "image"`.
+3. For video → `object_type: "video"`.
+4. For audio → `object_type: "audio"`.
+
+Do **not** use `"file"` as an `object_type` in request payloads — it is only valid in API *responses*.
+
+**Verification:** Call `get-messages(chat_id=<uuid>)` on the sent message. If the response contains only one `message_object` (text) instead of two (text + file), the attachment was dropped. Attachments with the correct `object_type` produce two `message_object` entries in the response.
 
 ## upload-files path rejected over HTTP
 

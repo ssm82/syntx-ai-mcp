@@ -119,8 +119,14 @@ export const chatsTools: SyntxTool[] = [
               size: { type: 'number', minimum: 0, description: 'Uploaded file size in bytes.' },
               type: {
                 type: 'string',
-                enum: ['image', 'video', 'audio', 'file'],
-                description: 'Attachment category. Inferred from mime_type when omitted.',
+                enum: ['image', 'video', 'audio'],
+                description:
+                  'Optional category hint for media files (image/video/audio). ' +
+                  'When set, the attachment is sent with the corresponding object_type. ' +
+                  'For text documents and other non-media files, omit this field — ' +
+                  'the type is inferred from mime_type and sent as "filetext". ' +
+                  'NOTE: "file" is NOT a valid input object_type on the syntx.ai API; ' +
+                  'use "filetext" instead.',
               },
             },
             required: ['url', 'filename'],
@@ -152,9 +158,12 @@ export const chatsTools: SyntxTool[] = [
           ...attachments.map((attachment) => {
             const mimeCategory = attachment.mime_type?.split('/', 1)[0]?.toLowerCase();
             const category = attachment.type ?? mimeCategory;
+            // `attachment.type` is the user-supplied category hint (image/video/audio/file).
+            // For non-media files (text, application/pdf, etc.), the syntx.ai API expects
+            // `filetext` as the object_type, NOT `file` (which is only valid in responses).
             const objectType = category === 'image' || category === 'video' || category === 'audio'
               ? category
-              : 'file';
+              : 'filetext';
             return {
               object_type: objectType,
               object_url: attachment.url,

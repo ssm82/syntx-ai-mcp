@@ -100,6 +100,51 @@ This pattern was exercised in the planning session on chat `uuid=3beaee7c-3a5e-4
 
 For complete flow diagrams, see [`references/chat-lifecycle.md`](references/chat-lifecycle.md).
 
+## File attachments — sending files and images to a chat
+
+`send-message` supports attaching files (text, PDF, images, audio, video) via the `attachments` parameter. The workflow:
+
+1. **Upload the file** via `upload-files` → returns a `url`.
+2. **Send** `send-message(chat_id, prompt, attachments=[{url, filename, mime_type}])`.
+
+### Attachment type mapping
+
+The `object_type` sent to the syntx.ai API is determined by `mime_type` (or the optional `type` hint):
+
+| MIME category | Type hint | Resulting `object_type` | Works? |
+|---|---|---|---|
+| `image/*` | `"image"` | `image` | ✅ |
+| `video/*` | `"video"` | `video` | ✅ |
+| `audio/*` | `"audio"` | `audio` | ✅ |
+| `text/*`, `application/*`, other | omit or `"file"` | **`filetext`** | ✅ |
+| anything | `"file"` | ~~`file`~~ | ❌ **API rejects** |
+
+**Critical:** `file` is a valid `object_type` in API *responses* (for completed file objects), but the API does **not** accept it as an input. Always use `filetext` for non-media attachments. The MCP server handles this conversion automatically since v0.2.0 — you can safely pass any MIME type and the server maps it to the correct `object_type`.
+
+### Attachment schema
+
+Minimal required fields per attachment:
+
+```json
+{
+  "url": "https://r2.syntx.ai/.../file.txt",
+  "filename": "report.txt",
+  "mime_type": "text/plain"
+}
+```
+
+Optional fields:
+
+- `type` — explicit category hint (`"image"`, `"video"`, `"audio"`). Inferred from `mime_type` when omitted. Only needed when the MIME type is ambiguous and you want to force media treatment.
+- `size` — file size in bytes (informational, for server-side display).
+
+### Known limitations
+
+- Maximum 10 attachments per message.
+- Each uploaded file is ≤ 100 MB.
+- Image resolution / file size limits depend on the downstream AI model (not enforced by the upload API).
+- The attached file must be uploaded to syntx.ai R2 storage first (via `upload-files`) — external URLs are not supported.
+
 ## Timeouts & streaming modes
 
 **Defaults are not safe for technical prompts.**
