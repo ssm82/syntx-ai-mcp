@@ -30,10 +30,26 @@ export class NotificationsResource {
   }
 
   /**
-   * Mark a notification as read.
-   * PATCH /api/v1/notifications/{id}/read (placeholder — endpoint inferred)
+   * Mark a single notification as read.
+   * PATCH /api/v1/notification/mark/global/{id}
+   *
+   * The previous SDK implementation targeted `PATCH /api/v1/notifications/{id}/read`
+   * but that endpoint returned 404 against api.syntx.ai. The SPA-observed
+   * path (`notification/mark/global/{id}`) returns 403 (auth-gated) — same
+   * pattern as the other working endpoints — and is therefore authoritative.
    */
   async markAsRead(id: string): Promise<void> {
-    await this.client.patch(`/api/v1/notifications/${id}/read`);
+    await this.client.patch(`/api/v1/notification/mark/global/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Mark every notification as read.
+   * PATCH /api/v1/notification/mark/all
+   *
+   * The SPA fires this from `notification.js:markAllRead` whenever the
+   * "mark all" UI action is invoked. No body is required.
+   */
+  async markAll(): Promise<void> {
+    await this.client.patch('/api/v1/notification/mark/all');
   }
 }

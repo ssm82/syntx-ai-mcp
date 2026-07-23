@@ -174,4 +174,100 @@ export const audioTools: SyntxTool[] = [
       }
     },
   },
+  {
+    name: 'generate-audio',
+    capability: { networkCall: true, costSideEffect: true },
+    description:
+      'Generate audio (TTS, voice change, music) via syntx.ai. Mirrors ' +
+      '`syntx.audio.generate` and the SPA `ai-audio.sendMessage` flow. ' +
+      'Posts to `POST /api/v1/audio/generate?ai_name={ai_name}`. ' +
+      'Requires a target chat UUID (use `create-chat` first). ' +
+      'The result includes generation metadata returned by the API; ' +
+      'follow up with `wait-for-response` or `get-messages` to read the ' +
+      'completed audio URL once the model finishes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ai_name: {
+          type: 'string',
+          description:
+            'Audio provider name (e.g. "elevenlabs", "suno-music"). ' +
+            'Use `list-models` with scope=audio to discover valid values.',
+          default: 'elevenlabs',
+        },
+        chat_uuid: { type: 'string', description: 'Target chat UUID (create one with create-chat).' },
+        prompt: { type: 'string', description: 'Text prompt describing the audio to produce.' },
+        voice_id: { type: 'string', description: 'Voice identifier for TTS models (e.g. ElevenLabs voice_id).' },
+        model_type: { type: 'string', description: 'Model identifier within the provider.' },
+        duration: { type: 'number', minimum: 0, description: 'Target duration in seconds (music/clip models).' },
+        sample_rate: {
+          type: 'number',
+          description: 'Sample rate override in Hz (e.g. 22050, 44100).',
+        },
+        style_prompt: {
+          type: 'string',
+          description: 'Provider-specific style/mood hint (e.g. "pop, sad, rainy night").',
+        },
+        file_urls: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Optional input file URLs (e.g. source audio for voice-change). ' +
+            'Mirrors the SPA `attachments` argument translated to `file_urls`.',
+        },
+        model_settings: {
+          type: 'object',
+          additionalProperties: true,
+          description:
+            'Provider-specific settings merged into `body.settings` after the ' +
+            'top-level fields above. Use for keys the top-level surface does ' +
+            'not expose (e.g. suno wants `mode`, `is_instrumental`, `styles`, ' +
+            '`title`, `negative_tags`, `source_clip_id`, `source_task_id`, ' +
+            '`continue_at`). Merged AFTER the top-level fields, so values ' +
+            'here override them. Only plain JSON values are allowed; arrays ' +
+            'and nested objects are passed through verbatim.',
+        },
+      },
+      required: ['chat_uuid', 'prompt'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      try {
+        const aiName = (args.ai_name as string | undefined) ?? 'elevenlabs';
+        const settings: Record<string, unknown> = {};
+        if (args.voice_id !== undefined) settings.voice_id = String(args.voice_id);
+        if (args.model_type !== undefined) settings.model_type = String(args.model_type);
+        if (args.duration !== undefined) settings.duration = Number(args.duration);
+        if (args.sample_rate !== undefined) settings.sample_rate = Number(args.sample_rate);
+        if (args.style_prompt !== undefined) settings.prompt = String(args.style_prompt);
+
+        const modelSettings = args.model_settings;
+        if (modelSettings !== undefined && modelSettings !== null) {
+          if (typeof modelSettings !== 'object' || Array.isArray(modelSettings)) {
+            throw new Error('model_settings must be a JSON object');
+          }
+        }
+
+        const bodyParams: {
+          chat_uuid: string;
+          prompt: string;
+          settings: Record<string, unknown>;
+          file_urls?: string[];
+          model_settings?: Record<string, unknown>;
+        } = {
+          chat_uuid: String(args.chat_uuid),
+          prompt: String(args.prompt),
+          settings,
+          file_urls: (args.file_urls as string[] | undefined) ?? undefined,
+        };
+        if (modelSettings !== undefined && modelSettings !== null) {
+          bodyParams.model_settings = modelSettings as Record<string, unknown>;
+        }
+        const result = await ctx.syntx.audio.generate(aiName, bodyParams);
+        return textResult(JSON.stringify(result, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'generate-audio');
+      }
+    },
+  },
 ];

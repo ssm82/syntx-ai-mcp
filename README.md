@@ -354,8 +354,8 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 | `list-chats` | Список чатов с фильтрами | `scope?`, `search?`, `direction?`, `page_size?` |
 | `create-chat` | Создать чат (обязателен `title`) | `title`*, `scope?`, `model?` |
 | `get-messages` | История сообщений чата | `chat_id`*, `page_size?`, `direction?` |
-| `send-message` | Отправить промпт, вернуть ack (ответ — асинхронно) | `chat_id`*, `prompt`*, `ai_name?`, `model_type?` |
-| `wait-for-response` | Дождаться завершения генерации и вернуть текст | `chat_id`*, `timeout?`, `poll_interval?` |
+| `send-message` | Отправить промпт с опциональными вложениями, вернуть ack (ответ — асинхронно) | `chat_id`*, `prompt`*, `ai_name?`, `model_type?`, `attachments?` |
+| `wait-for-response` | Дождаться завершения генерации и вернуть текст + media-объекты | `chat_id`*, `timeout?`, `poll_interval?` |
 | `ask` ⭐ | One-shot: создать чат → отправить → дождаться ответа | `prompt`*, `title?`, `ai_name?`, `model_type?`, `scope?`, `timeout?`, `poll_interval?`, `mode?` |
 | `stream-message` 🌊 | One-shot со стримингом ответа по WebSocket + `notifications/progress` | `prompt`*, `scope?`, `model?`, `ai_name?`, `model_type?`, `timeout?`, `mode?` |
 | `generate-title` | Авто-заголовок для чата | `chat_uuid`* |
@@ -373,6 +373,8 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 | Полный контроль | `create-chat` → `send-message` → `wait-for-response` → `get-messages` | Многошаговый диалог, кастомная логика |
 
 Стратегией управляет `SYNTX_STREAM_MODE`. **Важно:** значение `off` влияет только на `ask` (fire-and-forget: создать чат, отправить промпт, сразу вернуть `chat_uuid`). У `stream-message` нет режима `off`.
+
+**Как `wait-for-response` определяет «готово»:** инструмент резолвится, когда **все** объекты `message_object[i].completed === true`. Это включает ответы, состоящие только из `image` / `video` / `audio` / `file` — раньше такие генерации зависали до таймаута, потому что проверка требовала непустой `object_text` на объекте `[0]`. URL медиа-объектов возвращаются в блоке `media` (JSON) между текстом и метаданными; `metadata` с сервера пробрасывается как есть (без парсинга). Серверного `cancel`-эндпоинта нет — клиентский `AbortSignal` останавливает только локальный цикл опроса.
 
 **Пример вызова `ask`:**
 
@@ -481,6 +483,28 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
   }
 }
 ```
+
+Чтобы прикрепить загруженный файл к сообщению, передайте поля из ответа `upload-files` в `attachments`:
+
+```json
+{
+  "name": "send-message",
+  "arguments": {
+    "chat_id": "<chat-uuid>",
+    "prompt": "Опиши изображение",
+    "model_type": "<model-id>",
+    "attachments": [
+      {
+        "url": "https://r2.syntx.ai/.../pixel.png",
+        "filename": "pixel.png",
+        "mime_type": "image/png"
+      }
+    ]
+  }
+}
+```
+
+`send-message` преобразует MIME-тип в категорию syntx.ai (`image`, `video`, `audio` или `file`). Категорию можно задать явно полем `type`.
 
 ### Проекты (папки)
 

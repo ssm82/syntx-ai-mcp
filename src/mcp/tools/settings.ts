@@ -114,6 +114,40 @@ export const settingsTools: SyntxTool[] = [
     },
   },
   {
+    name: 'list-locales',
+    capability: { networkCall: true },
+    description:
+      'Return the available UI locales. Mirrors `syntx.settings.getLocales`. ' +
+      'Hits `GET /api/v1/i18n/locales`. Useful for surfacing the i18n catalogue ' +
+      'to language-aware agents before composing a localised prompt.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        lang: {
+          type: 'string',
+          description:
+            'Language hint to narrow the locale list (e.g. "en"). Optional.',
+        },
+        namespace: {
+          type: 'string',
+          description: 'Translation namespace to filter by. Optional.',
+        },
+      },
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      try {
+        const lang = typeof args.lang === 'string' && args.lang.length > 0 ? args.lang : undefined;
+        const namespace =
+          typeof args.namespace === 'string' && args.namespace.length > 0 ? args.namespace : undefined;
+        const result = await ctx.syntx.settings.getLocales(lang, namespace);
+        return textResult(JSON.stringify(result, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'list-locales');
+      }
+    },
+  },
+  {
     name: 'set-default-ai',
     capability: {},
     description:

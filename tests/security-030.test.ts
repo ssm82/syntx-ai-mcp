@@ -358,3 +358,8 @@ test('I3: auth-mutating tools are flagged authMutation', () => {
   }
   assert.ok(!flagged.includes('whoami'));
 });
+
+test('I3: message tools that forward user content are flagged externalExfiltration', () => {
+  const flagged = allTools.filter((tool) => tool.capability?.externalExfiltration).map((tool) => tool.name);
+  assert.ok(flagged.includes('send-message'));
+});

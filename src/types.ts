@@ -431,6 +431,114 @@ export interface DesignSettings {
 }
 
 /**
+ * Audio generation settings (TTS, voice change, music, etc.).
+ *
+ * Mirrors the SPA's `audio.js:sendMessage` `settings` argument. The exact
+ * field set is model-specific (see `list-models` scope=audio); only the
+ * most common keys are typed, with an open index signature so callers can
+ * pass provider-specific options without casts.
+ */
+export interface AudioSettings {
+  voice_id?: string;
+  model_type?: string;
+  /** Synthesis duration in seconds, when the model supports it. */
+  duration?: number;
+  /** Sample rate override in Hz (e.g. 22050, 44100). */
+  sample_rate?: number;
+  /** Music generation style / mood hint (e.g. "pop, sad, rainy night"). */
+  prompt?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Video generation settings (e.g. wan_video, runway, kling).
+ *
+ * Mirrors the SPA's `video.js:sendMessage` `settings` argument. The SPA
+ * rewrites `<<<url>>>` references inside the prompt into per-frame input
+ * URLs; `wan_video` reads `settings.file_urls` for the same purpose. The
+ * exact field set is model-specific (see `list-models` scope=video); only
+ * the most common keys are typed, with an open index signature so callers
+ * can pass provider-specific options without casts.
+ */
+export interface VideoSettings {
+  model_type?: string;
+  /** Target duration in seconds. Most video models cap at 5–30 s.
+   *
+   * Note: some providers expose the field under a different name on the
+   * wire. `grok_video` (any model: `grok_t2v`, `grok_i2v`, `grok_15_i2v`,
+   * `grok_v2v`) requires `video_duration` (NOT `duration`) and accepts only
+   * the literal values `"6"` or `"10"`. `kling_*` also reads `video_duration`.
+   * Use the `[key: string]: unknown` index signature below to set
+   * provider-specific keys without casts.
+   */
+  duration?: number;
+  /** Output resolution. Most providers accept "1280x720" or "720x1280".
+   *
+   * `grok_video` is the exception — it requires the literal enum
+   * `"480p"` or `"720p"`.
+   */
+  resolution?: string;
+  /** Aspect ratio, e.g. "16:9", "9:16", "1:1". */
+  aspect_ratio?: string;
+  /** Frame rate override (e.g. 24, 30). */
+  fps?: number;
+  /** Quality preset (e.g. "low", "medium", "high"). */
+  quality?: string;
+  /** Input media URLs for image-to-video / video-to-video flows. */
+  file_urls?: string[];
+  /** Seed for deterministic sampling, when supported. */
+  seed?: number;
+  /** Provider-specific settings passthrough.
+   *
+   * Use this for fields the typed surface above does not expose. Common
+   * examples:
+   * - `grok_video`: `{ video_duration: 6, resolution: '720p' }`
+   * - `kling_*`: `{ version: '1.6', mode: 'pro', native_audio: true }`
+   * - `veo3`: `{ upscale: true }`
+   *
+   * Values are sent verbatim. Numeric values are not coerced.
+   */
+  [key: string]: unknown;
+}
+
+/**
+ * URL-bearing object surfaced from a completed assistant reply.
+ *
+ * Populated from `message_object[]` entries whose `object_type` is one of
+ * `image`, `video`, `audio`, or `file`. `object_text` for media objects is
+ * typically empty (the URL is the payload) but is preserved verbatim so a
+ * future "captioned image" generation can be surfaced without a contract
+ * churn. `metadata` is the original `MessageObjectItem.metadata` value —
+ * loosely typed, passed through unchanged.
+ */
+export interface CompletedMedia {
+  object_type: 'image' | 'video' | 'audio' | 'file';
+  object_url: string;
+  object_text: string;
+  metadata: unknown | null;
+}
+
+/**
+ * Final shape returned by {@link ChatsResource.waitForResponse} /
+ * {@link ChatsResource.pollForResponse}.
+ *
+ * `text` is the concatenation of all `text` / `filetext` objects in the
+ * completed reply (separated by `\n\n` when more than one); it may be the
+ * empty string when the assistant turn was 100% media.
+ *
+ * `media` is the list of URL-bearing objects (`image`, `video`, `audio`,
+ * `file`) with non-null `object_url`. Empty when the reply was text-only.
+ *
+ * `message` is the original wire `Message` so callers can still reach the
+ * raw `message_object[]` / `created_at` / etc. without a second round-trip.
+ */
+export interface CompletedMessage {
+  text: string;
+  media: CompletedMedia[];
+  message: Message;
+}
+
+/**
  * In-progress status response
  */
 /**

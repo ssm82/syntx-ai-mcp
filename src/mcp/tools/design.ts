@@ -28,6 +28,18 @@ export const designTools: SyntxTool[] = [
           items: { type: 'string' },
           description: 'Optional reference image URLs.',
         },
+        model_settings: {
+          type: 'object',
+          additionalProperties: true,
+          description:
+            'Provider-specific settings merged into `body.settings` after the ' +
+            'top-level fields above. Use for keys the top-level surface does ' +
+            'not expose (e.g. ideogram wants `mode`, `style_type`, `rendering_speed`; ' +
+            'seedream wants `stream`, `aspect_ratio` coercion; midjourney wants ' +
+            '`version`, `style`, `seed`). Merged AFTER the top-level fields, so ' +
+            'values here override them. Only plain JSON values are allowed; ' +
+            'arrays and nested objects are passed through verbatim.',
+        },
       },
       required: ['chat_uuid', 'prompt'],
       additionalProperties: false,
@@ -35,7 +47,18 @@ export const designTools: SyntxTool[] = [
     async handler(args, ctx) {
       try {
         const aiName = (args.ai_name as string | undefined) ?? 'sora-images';
-        const result = await ctx.syntx.design.generate(aiName, {
+        const modelSettings = args.model_settings;
+        if (modelSettings !== undefined && modelSettings !== null) {
+          if (typeof modelSettings !== 'object' || Array.isArray(modelSettings)) {
+            throw new Error('model_settings must be a JSON object');
+          }
+        }
+        const bodyParams: {
+          chat_uuid: string;
+          prompt: string;
+          settings: Record<string, unknown>;
+          model_settings?: Record<string, unknown>;
+        } = {
           chat_uuid: String(args.chat_uuid),
           prompt: String(args.prompt),
           settings: {
@@ -45,7 +68,11 @@ export const designTools: SyntxTool[] = [
             quality: args.quality as string | undefined,
             image_url: args.image_url as string[] | undefined,
           },
-        });
+        };
+        if (modelSettings !== undefined && modelSettings !== null) {
+          bodyParams.model_settings = modelSettings as Record<string, unknown>;
+        }
+        const result = await ctx.syntx.design.generate(aiName, bodyParams);
         return textResult(JSON.stringify(result, null, 2));
       } catch (err) {
         return toMcpError(err, 'generate-image');

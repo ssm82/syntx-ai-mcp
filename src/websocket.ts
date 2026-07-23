@@ -5,8 +5,19 @@
  *   `wss://api.syntx.ai/api/v1/chats/stream` path is parsed by the server as
  *   `/chats/{chat_uuid}` (returning HTTP 422 for the non-UUID string "stream").
  *   This class is retained for potential future API support but is no longer
- *   used by {@link ChatsResource.streamResponse}, which now polls via REST.
+ *   used by {@link ChatsResource.streamResponse} or
+ *   {@link ChatsResource.waitForResponse}, both of which now poll via REST.
  *   Do not rely on this module for production use.
+ *
+ * Not expected to ever emit (against the live API):
+ *   - tokenized / incremental `content` frames — the REST endpoint delivers
+ *     each `message_object` atomically, so the transport has no per-token
+ *     granularity.
+ *   - per-object stream updates — there is one `message_object[i].completed`
+ *     flag per object, surfaced only by the polling endpoint; the SDK polls
+ *     it directly.
+ *   - synthetic `onChunk` typewriter output — `ChatsResource.streamResponse`
+ *     invokes `onChunk` once with the full reply text, not per token.
  *
  * Security note (H3): the bearer token is no longer sent as a URL query
  * parameter (it leaked into access logs, browser history, and proxy traces).

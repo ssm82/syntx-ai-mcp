@@ -11,6 +11,7 @@ export {
 export { SyntxAPIError, SyntxAuthError, SyntxAbortError, SyntxTimeoutError } from './errors';
 
 export * from './types';
+export { collectCompletedObjects } from './resources/chats';
 
 export { AIResource, type GetModelInfoParams } from './resources/ai';
 export { UserResource, toPublicUser } from './resources/user';
@@ -29,7 +30,8 @@ export { NotificationsResource, type ListNotificationsParams } from './resources
 export { FoldersResource, SettingsResource } from './resources/folders-settings';
 export type { CreateFolderParams, CreatedFolder } from './resources/folders-settings';
 export { DesignResource, type GenerateDesignParams } from './resources/design';
-export { AudioResource, type ListVoiceExamplesParams } from './resources/audio';
+export { AudioResource, type ListVoiceExamplesParams, type GenerateAudioParams } from './resources/audio';
+export { VideoResource, type GenerateVideoParams } from './resources/video';
 export { AppResource } from './resources/app';
 
 // ── MCP server layer ────────────────────────────────────────────────────────

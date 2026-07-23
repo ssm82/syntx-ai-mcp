@@ -38,13 +38,25 @@ async function main() {
   // 5. Send a prompt and poll for the response
   const prompt = 'Hello! What can you do?';
   console.log(`\nSending: "${prompt}"`);
-  const result = await syntx.chats.waitForResponse(chatUuid, prompt, {
-    pollIntervalMs: 3000,
-    timeoutMs: 60000,
-    lang,
+  await syntx.chats.sendMessage(chatUuid, 'chatgpt', [
+    {
+      object_type: 'text',
+      object_url: null,
+      object_text: prompt,
+    },
+  ]);
+  const result = await syntx.chats.waitForResponse(chatUuid, {
+    timeout: 60000,
+    pollInterval: 3000,
   });
-  console.log('\n--- Response ---');
-  console.log(result.text);
+  console.log('\n--- Text reply ---');
+  console.log(result.text || '(no text — media-only reply)');
+  if (result.media.length > 0) {
+    console.log(`\n--- Media (${result.media.length}) ---`);
+    for (const m of result.media) {
+      console.log(`${m.object_type}: ${m.object_url}`);
+    }
+  }
   console.log('--- End ---');
 }
 

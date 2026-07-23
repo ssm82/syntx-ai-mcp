@@ -8,6 +8,7 @@ import { NotificationsResource } from './resources/notifications';
 import { FoldersResource, SettingsResource } from './resources/folders-settings';
 import { DesignResource } from './resources/design';
 import { AudioResource } from './resources/audio';
+import { VideoResource } from './resources/video';
 import { AppResource } from './resources/app';
 
 /**
@@ -35,6 +36,7 @@ export class SyntxClient {
   readonly settings: SettingsResource;
   readonly design: DesignResource;
   readonly audio: AudioResource;
+  readonly video: VideoResource;
   readonly app: AppResource;
 
   constructor(config?: SyntxClientConfig) {
@@ -50,6 +52,7 @@ export class SyntxClient {
     this.settings = new SettingsResource(this.client);
     this.design = new DesignResource(this.client);
     this.audio = new AudioResource(this.client);
+    this.video = new VideoResource(this.client);
     this.app = new AppResource();
   }
 

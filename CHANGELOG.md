@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0] - Unreleased
 
+### Added
+
+- `send-message` now accepts uploaded files through `attachments` and sends the
+  upstream `objects` payload expected by syntx.ai. Each attachment reuses the
+  `url`, `filename`, and `mime_type` returned by `upload-files`; `type` can be
+  supplied explicitly for `image`, `video`, `audio`, or `file`.
+
 ### Security
 - **M2 — request-scoped credentials over HTTP.** `createMcpServer` /
   `createMcpContext` now accept an optional `requestToken`; the HTTP
@@ -70,6 +77,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `waitForResponse` / `pollForResponse` now resolve when **every**
+  `message_object[i].completed === true` (was: `message_object[0].completed &&
+  object_text non-empty`). Fixes the silent-hang on image / video / audio /
+  file-only replies and the early-return on multi-object text+media replies.
+  The return shape is now `{ text, media, message }` (was `{ text, message }):
+  `text` concatenates `text` / `filetext` `object_text` values (separated by
+  `\n\n` when more than one), `media` is the list of URL-bearing objects
+  (`image` | `video` | `audio` | `file`) with `object_url` and `metadata`
+  passed through verbatim, and `message` is the original wire `Message`.
+  Migration: destructure `result.media` alongside `result.text`; an empty
+  `text` plus a non-empty `media` is the normal "media-only reply" case.
+  The MCP `wait-for-response` tool renders the new `media` block between the
+  assistant text and the trailing `--- metadata ---` JSON block (existing
+  downstream parsers that pattern-match the metadata block keep working).
 - **Breaking:** `WaitForResponseOptions.pollInterval` is now an adaptive
   ceiling rather than a fixed inter-poll delay. The first tick fires
   near `0.4 × pollInterval` and backs off ×1.5 up to the configured

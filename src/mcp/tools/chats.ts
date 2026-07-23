@@ -94,9 +94,9 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'send-message',
-    capability: { networkCall: true, costSideEffect: true },
+    capability: { externalExfiltration: true, networkCall: true, costSideEffect: true },
     description:
-      'Send a message (prompt) to an existing chat and return immediately. ' +
+      'Send a message (prompt) with optional uploaded-file attachments to an existing chat and return immediately. ' +
       'The assistant response is generated asynchronously — poll with `wait-for-response` ' +
       'or use `ask` / `stream-message` for a single blocking call.',
     inputSchema: {
@@ -106,6 +106,28 @@ export const chatsTools: SyntxTool[] = [
         prompt: { type: 'string', description: 'The prompt text to send.' },
         ai_name: { type: 'string', description: 'AI service name. Defaults to the server default.' },
         model_type: { type: 'string', description: 'Model identifier for this message.' },
+        attachments: {
+          type: 'array',
+          maxItems: 10,
+          description: 'Files returned by `upload-files` to attach to this message.',
+          items: {
+            type: 'object',
+            properties: {
+              url: { type: 'string', minLength: 1, description: 'Uploaded file URL.' },
+              filename: { type: 'string', minLength: 1, description: 'File name shown in the chat.' },
+              mime_type: { type: 'string', minLength: 1, description: 'Uploaded file MIME type.' },
+              size: { type: 'number', minimum: 0, description: 'Uploaded file size in bytes.' },
+              type: {
+                type: 'string',
+                enum: ['image', 'video', 'audio', 'file'],
+                description: 'Attachment category. Inferred from mime_type when omitted.',
+              },
+            },
+            required: ['url', 'filename'],
+            anyOf: [{ required: ['mime_type'] }, { required: ['type'] }],
+            additionalProperties: false,
+          },
+        },
       },
       required: ['chat_id', 'prompt'],
       additionalProperties: false,
@@ -113,14 +135,35 @@ export const chatsTools: SyntxTool[] = [
     async handler(args, ctx) {
       try {
         const aiName = (args.ai_name as string | undefined) ?? ctx.config.defaultAI;
-        await ctx.syntx.chats.sendMessage(String(args.chat_id), aiName, [
+        const modelType = (args.model_type as string | undefined) ?? ctx.config.defaultModel;
+        const attachments = (args.attachments as Array<{
+          url: string;
+          filename: string;
+          mime_type?: string;
+          type?: string;
+        }> | undefined) ?? [];
+        const objects = [
           {
             object_type: 'text',
             object_url: null,
             object_text: String(args.prompt),
-            model_type: (args.model_type as string | undefined) ?? ctx.config.defaultModel,
+            model_type: modelType,
           },
-        ]);
+          ...attachments.map((attachment) => {
+            const mimeCategory = attachment.mime_type?.split('/', 1)[0]?.toLowerCase();
+            const category = attachment.type ?? mimeCategory;
+            const objectType = category === 'image' || category === 'video' || category === 'audio'
+              ? category
+              : 'file';
+            return {
+              object_type: objectType,
+              object_url: attachment.url,
+              object_text: attachment.filename,
+              model_type: modelType,
+            };
+          }),
+        ];
+        await ctx.syntx.chats.sendMessage(String(args.chat_id), aiName, objects);
         return textResult(
           `Message sent to chat ${args.chat_id}. Use "wait-for-response" or "get-messages" to read the reply.`,
         );
@@ -133,7 +176,8 @@ export const chatsTools: SyntxTool[] = [
     name: 'wait-for-response',
     capability: { networkCall: true },
     description:
-      'Block until the latest assistant message in a chat finishes generating, then return its text. ' +
+      'Block until the latest assistant message in a chat finishes generating, then return its text and media URLs. ' +
+      'Resolves when every message_object[i].completed === true — including image / video / audio / file-only replies. ' +
       'Respects the server poll interval/timeout. Use after `send-message`.',
     inputSchema: {
       type: 'object',
@@ -147,18 +191,25 @@ export const chatsTools: SyntxTool[] = [
     },
     async handler(args, ctx, extra) {
       try {
-        const { text, message } = await ctx.syntx.chats.waitForResponse(String(args.chat_id), {
-          timeout: (args.timeout as number | undefined) ?? ctx.config.pollTimeout,
-          pollInterval: (args.poll_interval as number | undefined) ?? ctx.config.pollInterval,
-          signal: extra?.signal,
-          // Heartbeat: each poll tick emits notifications/progress so MCP
-          // clients with resetTimeoutOnProgress survive long generations.
-          onProgress: (elapsed, total) => {
-            void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
+        const { text, media, message } = await ctx.syntx.chats.waitForResponse(
+          String(args.chat_id),
+          {
+            timeout: (args.timeout as number | undefined) ?? ctx.config.pollTimeout,
+            pollInterval: (args.poll_interval as number | undefined) ?? ctx.config.pollInterval,
+            signal: extra?.signal,
+            // Heartbeat: each poll tick emits notifications/progress so MCP
+            // clients with resetTimeoutOnProgress survive long generations.
+            onProgress: (elapsed, total) => {
+              void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
+            },
           },
-        });
+        );
+        const textBlock =
+          text || (media.length === 0 ? '(no assistant reply yet)' : '(media-only reply, see media below)');
         return textResult(
-          `Assistant reply:\n\n${text}\n\n--- metadata ---\n${JSON.stringify(message, null, 2)}`,
+          `Assistant reply:\n\n${textBlock}\n\n` +
+            `--- media ---\n${JSON.stringify(media, null, 2)}\n\n` +
+            `--- metadata ---\n${JSON.stringify(message, null, 2)}`,
         );
       } catch (err) {
         return toMcpError(err, 'wait-for-response');
@@ -374,6 +425,31 @@ export const chatsTools: SyntxTool[] = [
         return textResult(`Moved chat ${chatId} to project ${folderId}.`);
       } catch (err) {
         return toMcpError(err, 'move-chat-to-project');
+      }
+    },
+  },
+  {
+    name: 'get-inprogress',
+    capability: { networkCall: true },
+    description:
+      'Return the in-progress generations for a chat. Mirrors `syntx.chats.getInProgress`. ' +
+      'Hits `GET /api/v1/chats/{chat_id}/inprogress`. An empty array means nothing is currently ' +
+      'generating; otherwise each entry describes an active assistant object (model, object_type, ' +
+      'created_at, task_id). Used internally by `wait-for-response` to gate on prior requests.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chat_id: { type: 'string', description: 'Chat UUID or numeric id (required).' },
+      },
+      required: ['chat_id'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      try {
+        const result = await ctx.syntx.chats.getInProgress(String(args.chat_id));
+        return textResult(JSON.stringify(result, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'get-inprogress');
       }
     },
   },

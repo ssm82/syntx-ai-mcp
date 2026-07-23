@@ -94,6 +94,13 @@ export const filesTools: SyntxTool[] = [
           default: true,
           description: 'Ask the server to detect duplicates and skip them.',
         },
+        model_type: {
+          type: 'string',
+          description:
+            'Model identifier to scope the upload to (mirrors the SPA\'s ' +
+            '`settings.model_type` field). Defaults to the server default model, ' +
+            'or empty string when none is configured.',
+        },
       },
       required: ['files'],
       additionalProperties: false,
@@ -136,6 +143,11 @@ export const filesTools: SyntxTool[] = [
         const checkDuplicates = args.check_duplicates === undefined
           ? true
           : Boolean(args.check_duplicates);
+        const modelTypeRaw = args.model_type;
+        const modelType =
+          typeof modelTypeRaw === 'string' && modelTypeRaw.length > 0
+            ? modelTypeRaw
+            : (ctx.config.defaultModel ?? '');
 
         const result = await ctx.syntx.chats.uploadFiles(
           resolved.map((r) => ({
@@ -145,6 +157,7 @@ export const filesTools: SyntxTool[] = [
           })),
           'hidden',
           checkDuplicates,
+          modelType,
         );
         return textResult(JSON.stringify(result, null, 2));
       } catch (err) {
@@ -155,17 +168,33 @@ export const filesTools: SyntxTool[] = [
   {
     name: 'delete-file',
     capability: { networkCall: true },
-    description: 'Permanently delete an uploaded file by its id.',
+    description:
+      'Permanently delete an uploaded file. Accepts either `file_id` (the ' +
+      'historical behaviour) or `url` (the uploaded R2 URL, mirroring the SPA\'s ' +
+      '`file-storage.remove`). Exactly one of the two must be provided.',
     inputSchema: {
       type: 'object',
-      properties: { file_id: { type: 'string' } },
-      required: ['file_id'],
+      properties: {
+        file_id: { type: 'string', description: 'Uploaded file id.' },
+        url: { type: 'string', description: 'Uploaded file URL.' },
+      },
       additionalProperties: false,
+      anyOf: [{ required: ['file_id'] }, { required: ['url'] }],
     },
     async handler(args, ctx) {
+      const fileId = typeof args.file_id === 'string' ? args.file_id.trim() : '';
+      const url = typeof args.url === 'string' ? args.url.trim() : '';
+      if (!fileId && !url) {
+        return toMcpError(
+          new Error('Exactly one of "file_id" or "url" must be provided'),
+          'delete-file',
+        );
+      }
       try {
-        await ctx.syntx.chats.deleteFile(String(args.file_id));
-        return textResult(`File ${args.file_id} deleted.`);
+        const target: string | { url: string } = fileId ? fileId : { url };
+        await ctx.syntx.chats.deleteFile(target);
+        const label = fileId ? `file_id ${fileId}` : `url ${url}`;
+        return textResult(`Deleted ${label}.`);
       } catch (err) {
         return toMcpError(err, 'delete-file');
       }

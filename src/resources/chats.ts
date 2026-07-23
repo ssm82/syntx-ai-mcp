@@ -8,9 +8,65 @@ import type {
   InProgressResponse,
   WaitForResponseOptions,
   Message,
+  MessageObjectItem,
+  CompletedMedia,
+  CompletedMessage,
   StreamResponseOptions,
   StreamResponseResult,
 } from '../types';
+
+const MEDIA_OBJECT_TYPES = new Set(['image', 'video', 'audio', 'file']);
+
+/**
+ * Pure projection from a wire {@link Message} to the curated reply shape
+ * returned by {@link ChatsResource.waitForResponse}.
+ *
+ * Readiness rule: `ready === true` iff every `message_object[i]` has
+ * `completed === true` AND the message contains at least one object. This
+ * replaces the previous single-object check (`message_object[0].completed &&
+ * object_text non-empty`), which silently hung on image / video / audio /
+ * file-only replies and returned early on multi-object text+media replies.
+ *
+ * `text` collects `object_type === 'text' | 'filetext'` objects joined with
+ * `\n\n` when there is more than one such object (single-object replies stay
+ * unseparated). `media` collects URL-bearing objects whose `object_type` is
+ * one of `image`, `video`, `audio`, `file`; `metadata` is passed through
+ * verbatim (no clone — `unknown` may hold non-serializable values).
+ */
+export function collectCompletedObjects(message: Message): {
+  text: string;
+  media: CompletedMedia[];
+  ready: boolean;
+} {
+  const objects = message.message_object;
+  if (!Array.isArray(objects) || objects.length === 0) {
+    return { text: '', media: [], ready: false };
+  }
+
+  const ready = objects.every((o) => o && o.completed === true);
+
+  const textParts: string[] = [];
+  const media: CompletedMedia[] = [];
+
+  for (const o of objects) {
+    if (!o) continue;
+    if (o.object_type === 'text' || o.object_type === 'filetext') {
+      if (typeof o.object_text === 'string' && o.object_text.length > 0) {
+        textParts.push(o.object_text);
+      }
+    } else if (MEDIA_OBJECT_TYPES.has(o.object_type) && o.object_url) {
+      media.push({
+        object_type: o.object_type as CompletedMedia['object_type'],
+        object_url: o.object_url,
+        object_text: typeof o.object_text === 'string' ? o.object_text : '',
+        metadata: (o as MessageObjectItem).metadata ?? null,
+      });
+    }
+  }
+
+  const text = textParts.length > 1 ? textParts.join('\n\n') : textParts.join('');
+  return { text, media, ready };
+}
 
 export interface ListChatsParams {
   scope?: string;
@@ -168,7 +224,7 @@ export class ChatsResource {
   async waitForResponse(
     chatId: string,
     options?: WaitForResponseOptions
-  ): Promise<{ text: string; message: Message }> {
+  ): Promise<CompletedMessage> {
     return this.pollForResponse(chatId, options);
   }
 
@@ -279,7 +335,7 @@ export class ChatsResource {
   async pollForResponse(
     chatId: string,
     options?: WaitForResponseOptions
-  ): Promise<{ text: string; message: Message }> {
+  ): Promise<CompletedMessage> {
     const timeout = options?.timeout ?? 600000;
     const maxPollInterval = options?.pollInterval ?? 5000;
     const pageSize = options?.pageSize ?? 50;
@@ -409,23 +465,9 @@ export class ChatsResource {
           continue;
         }
 
-        const msgObjects = assistant.message_object;
-        if (!msgObjects || !Array.isArray(msgObjects) || msgObjects.length === 0) {
-          consecutiveErrors = 0;
-          continue;
-        }
-
-        const obj = msgObjects[0];
-        if (!obj) {
-          consecutiveErrors = 0;
-          continue;
-        }
-
-        const hasText = typeof obj.object_text === 'string' && obj.object_text.length > 0;
-        const isCompleted = obj.completed === true;
-
-        if (isCompleted && hasText) {
-          return { text: obj.object_text, message: assistant };
+        const projection = collectCompletedObjects(assistant);
+        if (projection.ready) {
+          return { text: projection.text, media: projection.media, message: assistant };
         }
 
         consecutiveErrors = 0;
@@ -456,11 +498,16 @@ export class ChatsResource {
    * Accepts {@link UploadFileInput} — either a `Blob` (browser & Node 18+)
    * or a plain object describing a `Uint8Array` with a filename. Plain-object
    * form is the recommended cross-environment input.
+   *
+   * `modelType` mirrors the SPA's per-upload form field
+   * (`settings.model_type ?? ""`). The server uses it to scope the upload
+   * to a model; the SDK previously omitted the field entirely.
    */
   async uploadFiles(
     files: UploadFileInput[],
     destination?: 'hidden',
     checkDuplicates = true,
+    modelType: string = '',
   ): Promise<UploadResult> {
     const formData = new FormData();
     for (const item of files) {
@@ -480,6 +527,7 @@ export class ChatsResource {
     }
     if (destination) formData.append('destination', destination);
     formData.append('check_duplicates', String(checkDuplicates));
+    formData.append('model_type', modelType);
 
     const data = await this.client.postForm<{ data?: UploadResult } | UploadResult>(
       '/api/v1/chats/upload-files',
@@ -491,9 +539,15 @@ export class ChatsResource {
   /**
    * Delete a file.
    * DELETE /api/v1/files/delete
+   *
+   * The SPA accepts either `{ file_id }` or `{ url }` as the body. Pass a
+   * string to delete by id (the historical SDK behaviour), or a `{ url }`
+   * object to delete by the uploaded R2 URL.
    */
-  async deleteFile(fileId: string): Promise<void> {
-    await this.client.delete('/api/v1/files/delete', { file_id: fileId });
+  async deleteFile(target: string | { url: string }): Promise<void> {
+    const body: { file_id?: string; url?: string } =
+      typeof target === 'string' ? { file_id: target } : { url: target.url };
+    await this.client.delete('/api/v1/files/delete', body);
   }
 
   /**

@@ -4,10 +4,17 @@ import { textResult, toMcpError } from '../errors';
 /**
  * Notification tools.
  *
- * These mirror the `syntx.notifications.list` / `getUnreadCount` / `markAsRead`
- * SDK methods. The underlying endpoints are `GET /api/v1/notification/global`,
- * `GET /api/v1/notification/unread/count`, and
- * `PATCH /api/v1/notifications/{id}/read`.
+ * These mirror the `syntx.notifications.list` / `getUnreadCount` /
+ * `markAsRead` / `markAll` SDK methods. The underlying endpoints are:
+ *   - `GET  /api/v1/notification/global`
+ *   - `GET  /api/v1/notification/unread/count`
+ *   - `PATCH /api/v1/notification/mark/global/{id}`
+ *   - `PATCH /api/v1/notification/mark/all`
+ *
+ * Path note: the original SDK targeted `PATCH /api/v1/notifications/{id}/read`
+ * (singular `notification` vs plural `notifications`), which returned 404
+ * against api.syntx.ai. The SPA-observed `notification/mark/global/{id}` is
+ * authoritative (returns 403 auth-gated, same posture as the other endpoints).
  */
 export const notificationsTools: SyntxTool[] = [
   {
@@ -56,8 +63,9 @@ export const notificationsTools: SyntxTool[] = [
     name: 'mark-notification-read',
     capability: { networkCall: true },
     description:
-      'Mark a notification as read by its ID. Mirrors `syntx.notifications.markAsRead`. ' +
-      'Issues `PATCH /api/v1/notifications/{id}/read`.',
+      'Mark a single notification as read by its ID. Mirrors `syntx.notifications.markAsRead`. ' +
+      'Issues `PATCH /api/v1/notification/mark/global/{id}` (the SPA-observed path; ' +
+      '`/api/v1/notifications/{id}/read` returns 404 against the live server).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -76,6 +84,23 @@ export const notificationsTools: SyntxTool[] = [
         return textResult(`Marked notification ${id} as read.`);
       } catch (err) {
         return toMcpError(err, 'mark-notification-read');
+      }
+    },
+  },
+  {
+    name: 'mark-all-notifications-read',
+    capability: { networkCall: true },
+    description:
+      'Mark every notification as read. Mirrors `syntx.notifications.markAll`. ' +
+      'Issues `PATCH /api/v1/notification/mark/all` (the SPA `notification.js:markAllRead` action). ' +
+      'No body is required.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    async handler(_args, ctx) {
+      try {
+        await ctx.syntx.notifications.markAll();
+        return textResult('Marked all notifications as read.');
+      } catch (err) {
+        return toMcpError(err, 'mark-all-notifications-read');
       }
     },
   },

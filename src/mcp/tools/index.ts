@@ -10,6 +10,8 @@ import { audioTools } from './audio';
 import { foldersTools } from './folders';
 import { plansTools } from './plans';
 import { notificationsTools } from './notifications';
+import { appTools } from './app';
+import { videoTools } from './video';
 
 /**
  * Central registry of all MCP tools exposed by syntx-ai-mcp.
@@ -24,7 +26,9 @@ export const allTools: SyntxTool[] = [
   ...filesTools,
   ...settingsTools,
   ...audioTools,
+  ...videoTools,
   ...foldersTools,
   ...plansTools,
   ...notificationsTools,
+  ...appTools,
 ];
