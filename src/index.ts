@@ -40,14 +40,9 @@ export { createMcpContext, withRequestContext } from './mcp/context';
 export type { McpContext, SyntxToolExtra } from './mcp/registry';
 export type {
   SyntxTool,
-  SyntxResource,
-  SyntxResourceTemplate,
-  SyntxPrompt,
   SyntxToolResult,
 } from './mcp/registry';
 export { allTools } from './mcp/tools';
-export { allResources, allResourceTemplates } from './mcp/resources';
-export { allPrompts } from './mcp/prompts';
 
 // ── Config & transport ──────────────────────────────────────────────────────
 export { loadConfig, DEFAULT_CONFIG, ENV_KEYS } from './config';

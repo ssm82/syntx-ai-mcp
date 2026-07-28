@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0] - Unreleased
 
+### Changed
+
+- **Breaking — MCP surface reduction (51 → 28 tools, ≈45%).** The MCP layer
+  is now focused on the conversational core plus project (folder) management.
+  Twenty-three tools have been removed and the rest are unchanged in
+  behaviour. See "Removed" below for the full list.
+- **Breaking — `./mcp` subpath export now resolves.** `dist/mcp/server.{js,mjs,d.ts}`
+  is now produced by the build (previously the export pointed at a non-existent
+  path). Consumers can `import 'syntx-ai-mcp/mcp'` to get `createMcpServer`.
+- **Breaking — `McpContext` narrowed.** `setDefaultModel` and `setDefaultAI`
+  have been removed (their only callers were the deleted `set-default-model`
+  / `set-default-ai` tools). External consumers implementing `McpContext`
+  manually will see TypeScript errors. `sendLog` is **retained** — it is
+  used by `stream-message` for per-chunk `notifications/message` frames
+  (`chats.ts:streamAsk.onChunk`).
+- **Breaking — `SyntxToolCapability` narrowed.** `networkCall`,
+  `externalExfiltration`, `costSideEffect`, and `authMutation` have been
+  removed; only `localFileRead` remains. Of those four, **none were ever
+  enforced at runtime** — the previous metadata was documentation-only. The
+  one enforced capability (`localFileRead`) continues to gate `path`-bearing
+  tool calls over non-`stdio` transports (I3 in `server.ts`).
+- **Breaking — all MCP resources and prompts removed.** The 6 static
+  resources (`syntx://models`, `syntx://ai-services`, `syntx://plans`,
+  `syntx://settings`, `syntx://user/me`, `syntx://user/balance`), the one
+  resource template (`syntx://chat/{uuid}/messages`), and the 4 prompts
+  (`generate-landing`, `summarize-chat`, `translate`, `code-review`) have
+  been removed. ReDoS-hardened `matchTemplate` (the resource-template URI
+  matcher) was removed alongside them.
+- **New `src/mcp/tools/_helpers.ts` — `wrapSdk`.** A two-level abstraction
+  applied to the 16 pure CRUD tools (`list-chats`, `create-chat`,
+  `get-messages`, `get-inprogress`, `get-favorite-messages`,
+  `list-uploaded-files`, `delete-file`, `get-profile` stays manual due to
+  pre-checks, `get-balance`, `list-ai-services`, `list-models`,
+  `get-model-info`, `list-projects`, `create-project` and `delete-project`
+  stay manual due to pre-checks, `add-chats-to-project` stays manual due to
+  pre-checks). Streaming (`send-message`, `wait-for-response`, `ask`,
+  `stream-message`) and media (`upload-files`, `transcribe`,
+  `generate-audio`, `generate-video`, `generate-image`) tools remain as
+  manual handlers because they consume `ctx.sendProgress` / `ctx.sendLog`
+  inside callbacks or return non-JSON content.
+- **`model-scope.ts` inlined into `ai.ts`.** `KNOWN_PROVIDERS`, `inferScope`,
+  and `filterModels` are now private to `ai.ts`; the file was deleted.
+  Behaviour unchanged.
+- `auth.ts` (493 → ~190 LOC): only `whoami` and `set-token` remain; the
+  `assertLocalAuthMutationAllowed` H4 transport guard is retained.
+  `validate-token`, `start-telegram-auth`, `poll-telegram-auth`,
+  `login-telegram`, `send-email-otp`, `verify-email-otp` have been removed.
+
+### Removed
+
+- **MCP tools:** `pin-chat`, `move-chat-to-project`, `generate-title`,
+  `get-subscription`, `validate-token`, `start-telegram-auth`,
+  `poll-telegram-auth`, `login-telegram`, `send-email-otp`,
+  `verify-email-otp`, `get-settings`, `set-default-model`, `list-locales`,
+  `set-default-ai`, `list-notifications`, `get-unread-notification-count`,
+  `mark-notification-read`, `mark-all-notifications-read`, `list-plans`,
+  `list-promo-banners`, `get-version`, `get-maintenance-status`,
+  `list-voice-examples`.
+- **Files:** `src/mcp/tools/{settings,notifications,plans,app,model-scope}.ts`,
+  `src/mcp/resources/`, `src/mcp/prompts/`.
+- **Exports:** `allResources`, `allResourceTemplates`, `allPrompts`, the
+  `SyntxResource` / `SyntxResourceTemplate` / `SyntxPrompt` types, and
+  `ServerCapabilities`.
+- **Internal:** `matchTemplate` and its I2 ReDoS-hardening tests (the
+  resources/templates feature was removed alongside).
+
+### Security
+
+- I3 enforcement surface (`localFileRead` path-rejection over non-`stdio`
+  transports) is unchanged — `upload-files` and `transcribe` keep their
+  `capability: { localFileRead: true }` declarations and the metadata-driven
+  block in `server.ts`.
+- H4 transport guard (`assertLocalAuthMutationAllowed`) is retained for
+  `set-token` (stdio only); the removed login-flow tools no longer reach
+  that helper.
+- M2 request-scoped credential guard is unchanged — `setToken` on a
+  context built with a `requestToken` still throws.
+
+### Added
+
+- `wrapSdk` regression test in `tests/wrap-sdk.test.ts`: locks in that the
+  `SyntxTimeoutError.chatId` recovery hint survives the helper, so the
+  `wait-for-response` / `ask` / `stream-message` flow can resume from
+  interrupted generations without re-sending the prompt (avoiding duplicate
+  token spend).
+
+## [0.3.0] - Unreleased (prior entries)
+
 ### Added
 
 - `upload-files` silently rewrites `.js`, `.css`, `.json`, `.py` to `.txt` on

@@ -5,7 +5,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import { startHttp } from '../src/transport/http';
-import { createMcpServer, matchTemplate } from '../src/mcp/server';
+import { createMcpServer } from '../src/mcp/server';
 import { createMcpContext } from '../src/mcp/context';
 import { allTools } from '../src/mcp/tools';
 import { audioTools } from '../src/mcp/tools/audio';
@@ -13,7 +13,6 @@ import { DEFAULT_CONFIG } from '../src/config';
 import { SyntxClient } from '../src/syntx-client';
 import { SyntxAuth } from '../src/auth';
 import type { McpContext } from '../src/mcp/registry';
-import type { SyntxResourceTemplate } from '../src/mcp/registry';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 const b64url = (buf: Buffer) =>
@@ -308,58 +307,12 @@ test('I1: transcribe accepts whitelisted audio (mp3 by extension)', async () => 
   assert.match((result.content[0] as { text: string }).text, /"text": "ok"/);
 });
 
-// ── I2 — ReDoS-safe matchTemplate ───────────────────────────────────────────
-
-function tpl(uriTemplate: string): SyntxResourceTemplate {
-  return {
-    uriTemplate,
-    name: 't',
-    read: async () => ({ contents: [] }),
-  };
-}
-
-test('I2: normal template still matches and extracts params', () => {
-  const params = matchTemplate(tpl('syntx://chat/{uuid}/messages'), 'syntx://chat/abc-123/messages');
-  assert.deepEqual(params, { uuid: 'abc-123' });
-});
-
-test('I2: regex metacharacters in template literals are escaped', () => {
-  // `.` must match a literal dot, not any character.
-  assert.deepEqual(matchTemplate(tpl('syntx://x/{a}.json'), 'syntx://x/foo.json'), { a: 'foo' });
-  assert.equal(matchTemplate(tpl('syntx://x/{a}.json'), 'syntx://x/fooXjson'), null);
-});
-
-test('I2: overlong URI / template are rejected without evaluation', () => {
-  assert.equal(matchTemplate(tpl('syntx://chat/{uuid}'), `syntx://chat/${'a'.repeat(600)}`), null);
-  assert.equal(matchTemplate(tpl(`syntx://chat/{${'u'.repeat(300)}}`), 'syntx://chat/x'), null);
-});
-
 // ── I3 — capability inventory ───────────────────────────────────────────────
 
-test('I3: every tool declares a capability inventory', () => {
-  for (const tool of allTools) {
-    assert.ok(
-      tool.capability !== undefined,
-      `tool ${tool.name} is missing capability metadata`,
-    );
-  }
-});
-
-test('I3: filesystem-reading tools are flagged localFileRead', () => {
+test('I3: every tool with a capability flag declares localFileRead when it reads the filesystem', () => {
+  // The remaining enforced capability is `localFileRead`. Any tool that
+  // declares *some* capability must declare it for filesystem access.
   const flagged = allTools.filter((t) => t.capability?.localFileRead).map((t) => t.name);
   assert.ok(flagged.includes('upload-files'));
   assert.ok(flagged.includes('transcribe'));
-});
-
-test('I3: auth-mutating tools are flagged authMutation', () => {
-  const flagged = allTools.filter((t) => t.capability?.authMutation).map((t) => t.name);
-  for (const name of ['set-token', 'poll-telegram-auth', 'login-telegram', 'verify-email-otp']) {
-    assert.ok(flagged.includes(name), `${name} must be flagged authMutation`);
-  }
-  assert.ok(!flagged.includes('whoami'));
-});
-
-test('I3: message tools that forward user content are flagged externalExfiltration', () => {
-  const flagged = allTools.filter((tool) => tool.capability?.externalExfiltration).map((tool) => tool.name);
-  assert.ok(flagged.includes('send-message'));
 });

@@ -1,5 +1,6 @@
 import type { SyntxTool } from '../registry';
 import { textResult, toMcpError } from '../errors';
+import { wrapSdk } from './_helpers';
 import {
   assertPathSourceAllowed,
   resolveAllowedRoots,
@@ -46,7 +47,6 @@ export function rewriteCodeExtension(filename: string): string {
 export const filesTools: SyntxTool[] = [
   {
     name: 'list-uploaded-files',
-    capability: { networkCall: true },
     description: 'List files previously uploaded to the syntx.ai account.',
     inputSchema: {
       type: 'object',
@@ -61,22 +61,20 @@ export const filesTools: SyntxTool[] = [
       },
       additionalProperties: false,
     },
-    async handler(args, ctx) {
-      try {
-        const result = await ctx.syntx.chats.getUploadedFiles(
-          (args.scope as string | undefined) ?? 'all',
-          (args.page as number | undefined) ?? 1,
-          (args.page_size as number | undefined) ?? 10,
-        );
-        return textResult(JSON.stringify(result, null, 2));
-      } catch (err) {
-        return toMcpError(err, 'list-uploaded-files');
-      }
-    },
+    handler: wrapSdk<
+      { scope?: string; page?: number; page_size?: number },
+      unknown
+    >('list-uploaded-files', async (args, ctx) =>
+      ctx.syntx.chats.getUploadedFiles(
+        args.scope ?? 'all',
+        args.page ?? 1,
+        args.page_size ?? 10,
+      ),
+    ),
   },
   {
     name: 'upload-files',
-    capability: { localFileRead: true, externalExfiltration: true, networkCall: true, costSideEffect: true },
+    capability: { localFileRead: true },
     description:
       'Upload one or more files to the syntx.ai account. ' +
       'Each file entry accepts either `path` (server-side file path, e.g. "C:\\photo.jpg") ' +
@@ -198,7 +196,6 @@ export const filesTools: SyntxTool[] = [
   },
   {
     name: 'delete-file',
-    capability: { networkCall: true },
     description:
       'Permanently delete an uploaded file. Accepts either `file_id` (the ' +
       'historical behaviour) or `url` (the uploaded R2 URL, mirroring the SPA\'s ' +

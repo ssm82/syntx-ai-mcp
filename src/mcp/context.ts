@@ -43,14 +43,6 @@ export function createMcpContext(config: McpServerConfig, requestToken?: string)
       }
       syntx.auth.setToken(token ?? '');
     },
-    setDefaultModel(model) {
-      // Mutating the live object: downstream tools reading `ctx.config.defaultModel`
-      // pick up the new value on their next invocation.
-      (config as { defaultModel?: string }).defaultModel = model ?? undefined;
-    },
-    setDefaultAI(ai) {
-      (config as { defaultAI: string }).defaultAI = ai;
-    },
     // sendProgress / sendLog are wired per-request by `createMcpServer` via
     // the request extra — see `mcp/server.ts`. They are declared as optional
     // so direct programmatic use of the context still works.

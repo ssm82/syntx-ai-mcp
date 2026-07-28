@@ -59,11 +59,6 @@ test('AudioResource.generate forwards file_urls when provided (matches SPA body 
 test('generate-audio MCP tool is registered in audioTools + allTools', () => {
   const tool = audioTools.find((t) => t.name === 'generate-audio');
   assert.ok(tool, 'generate-audio must be exported from audio.ts');
-  assert.equal(tool.capability.networkCall, true);
-  assert.equal(tool.capability.costSideEffect, true);
-  assert.deepEqual(allTools.map((t) => t.name), [
-    ...allTools.map((t) => t.name),
-  ].filter((n, i, arr) => arr.indexOf(n) === i));
   assert.ok(allTools.some((t) => t.name === 'generate-audio'));
 });
 

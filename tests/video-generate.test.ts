@@ -74,8 +74,6 @@ test('VideoResource.generate forwards optional file_urls + audio_url when provid
 test('generate-video MCP tool is registered in videoTools + allTools', () => {
   const tool = videoTools.find((t) => t.name === 'generate-video');
   assert.ok(tool, 'generate-video must be exported from video.ts');
-  assert.equal(tool.capability.networkCall, true);
-  assert.equal(tool.capability.costSideEffect, true);
   assert.ok(allTools.some((t) => t.name === 'generate-video'));
 });
 

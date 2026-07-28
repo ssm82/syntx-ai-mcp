@@ -13,7 +13,6 @@ import { textResult, toMcpError } from '../errors';
 export const videoTools: SyntxTool[] = [
   {
     name: 'generate-video',
-    capability: { networkCall: true, costSideEffect: true },
     description:
       'Generate a video via syntx.ai. Mirrors `syntx.video.generate` and ' +
       'the SPA `ai-video.sendMessage` flow. ' +

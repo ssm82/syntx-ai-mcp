@@ -5,12 +5,8 @@ import { aiTools } from './ai';
 import { chatsTools } from './chats';
 import { designTools } from './design';
 import { filesTools } from './files';
-import { settingsTools } from './settings';
 import { audioTools } from './audio';
 import { foldersTools } from './folders';
-import { plansTools } from './plans';
-import { notificationsTools } from './notifications';
-import { appTools } from './app';
 import { videoTools } from './video';
 
 /**
@@ -24,11 +20,7 @@ export const allTools: SyntxTool[] = [
   ...chatsTools,
   ...designTools,
   ...filesTools,
-  ...settingsTools,
   ...audioTools,
   ...videoTools,
   ...foldersTools,
-  ...plansTools,
-  ...notificationsTools,
-  ...appTools,
 ];

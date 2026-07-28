@@ -1,8 +1,9 @@
 import type { SyntxTool } from '../registry';
 import { textResult, toMcpError, toolError } from '../errors';
+import { wrapSdk } from './_helpers';
 
 /**
- * Read-only user account tools: profile, balance, subscription.
+ * Read-only user account tools: profile, balance.
  *
  * `get-profile` returns the full user profile and raises a clear MCP error
  * when no token is configured. For a non-erroring identity check (that reports
@@ -11,7 +12,6 @@ import { textResult, toMcpError, toolError } from '../errors';
 export const userTools: SyntxTool[] = [
   {
     name: 'get-profile',
-    capability: { networkCall: true },
     description:
       'Return the current user profile (sanitised public fields: id, user_id, ' +
       'name, username, email, avatar, auth_services). Internal identifiers such ' +
@@ -36,28 +36,8 @@ export const userTools: SyntxTool[] = [
   },
   {
     name: 'get-balance',
-    capability: { networkCall: true },
     description: 'Return the current token balance for the authenticated user.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    async handler(_args, ctx) {
-      try {
-        return textResult(JSON.stringify(await ctx.syntx.user.getBalance(), null, 2));
-      } catch (err) {
-        return toMcpError(err, 'get-balance');
-      }
-    },
-  },
-  {
-    name: 'get-subscription',
-    capability: { networkCall: true },
-    description: 'Return the active subscription and referral information for the user.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    async handler(_args, ctx) {
-      try {
-        return textResult(JSON.stringify(await ctx.syntx.user.getSubscription(), null, 2));
-      } catch (err) {
-        return toMcpError(err, 'get-subscription');
-      }
-    },
+    handler: wrapSdk('get-balance', async (_args, ctx) => ctx.syntx.user.getBalance()),
   },
 ];

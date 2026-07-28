@@ -1,17 +1,14 @@
 /**
  * Registry contracts for syntx-ai-mcp.
  *
- * These are framework-agnostic shapes that the tool/resource/prompt modules
- * implement. {@link createMcpServer} adapts them onto the official MCP SDK.
+ * These are framework-agnostic shapes that the tool modules implement.
+ * {@link createMcpServer} adapts them onto the official MCP SDK.
  */
 
 import type {
   Tool,
-  Prompt,
   ContentBlock,
   CallToolResult,
-  ReadResourceResult,
-  GetPromptResult,
   ServerRequest,
   ServerNotification,
 } from '@modelcontextprotocol/sdk/types.js';
@@ -49,18 +46,15 @@ export type SyntxToolResult = CallToolResult;
  * enforce policy generically (e.g. rejecting `localFileRead` arguments over
  * the HTTP transport) and so operators can audit the attack surface without
  * reading every handler. All flags default to `false` when omitted.
+ *
+ * After the v0.3.0 surface reduction the only enforced capability is
+ * `localFileRead` (the I3 path-rejection in `server.ts`). The other flags
+ * were documentation-only and have been removed — re-introduce them as
+ * `boolean` members here if a future invariant needs the runtime check.
  */
 export interface SyntxToolCapability {
   /** Reads files from the MCP server's local filesystem (e.g. `path` input). */
   localFileRead?: boolean;
-  /** Mutates authentication state (installs/replaces the bearer token). */
-  authMutation?: boolean;
-  /** Sends local/user-supplied content to an external service. */
-  externalExfiltration?: boolean;
-  /** Performs an outbound network call. */
-  networkCall?: boolean;
-  /** Incurs a billable side effect (token spend, email/SMS delivery, …). */
-  costSideEffect?: boolean;
 }
 
 export interface McpContext {
@@ -68,29 +62,10 @@ export interface McpContext {
   readonly syntx: import('../syntx-client').SyntxClient;
   /**
    * Resolved server configuration (live, read-only snapshot).
-   *
-   * The underlying store is mutable via the `setDefaultModel` / `setDefaultAI`
-   * mutators below, so consumers must treat the returned reference as a
-   * snapshot of the *current* effective values — re-reading it on each
-   * call site is the safe pattern.
    */
   readonly config: Readonly<import('../config').McpServerConfig>;
   /** Replace the active token (propagates to the underlying client). */
   setToken(token: string | undefined): void;
-  /**
-   * Install a new default model at runtime.
-   *
-   * Pass `null` to clear `defaultModel` (falling back to whatever the tool
-   * caller specified). Subsequent tool invocations that read `ctx.config.defaultModel`
-   * will see the updated value.
-   */
-  setDefaultModel(model: string | null): void;
-  /**
-   * Switch the default AI provider at runtime (e.g. `"chatgpt"`, `"claude"`,
-   * `"midjourney"`). Affects subsequent tool invocations that fall back to
-   * `ctx.config.defaultAI` when the caller omits `ai_name`.
-   */
-  setDefaultAI(ai: string): void;
   /**
    * Send a `notifications/progress` frame to the client if it supplied a
    * `progressToken` for this request. No-op when the client opted out.
@@ -102,6 +77,9 @@ export interface McpContext {
   /**
    * Send a `notifications/message` (logging) frame to the client. Falls
    * back silently if the client does not support logging notifications.
+   *
+   * Used by `stream-message` for per-chunk log notifications (see
+   * `chats.ts:streamAsk.onChunk`).
    */
   sendLog?: (
     level: 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency',
@@ -131,46 +109,8 @@ export interface SyntxTool {
   ) => Promise<SyntxToolResult>;
 }
 
-export interface SyntxResource {
-  uri: string;
-  name: string;
-  description?: string;
-  mimeType?: string;
-  /** Produce the resource body. May throw; the server maps errors to MCP errors. */
-  read: (ctx: McpContext) => Promise<ReadResourceResult>;
-}
-
-export interface SyntxResourceTemplate {
-  /** Template URI with `{param}` placeholders, e.g. `syntx://chat/{uuid}/messages`. */
-  uriTemplate: string;
-  name: string;
-  description?: string;
-  mimeType?: string;
-  /** Resolve a filled URI (with concrete param values) into a resource body. */
-  read: (uri: string, params: Record<string, string>, ctx: McpContext) => Promise<ReadResourceResult>;
-}
-
-export interface SyntxPrompt {
-  name: string;
-  description?: string;
-  arguments?: Prompt['arguments'];
-  /** Render the prompt into MCP prompt messages. */
-  get: (args: Record<string, string>, ctx: McpContext) => Promise<GetPromptResult>;
-}
-
-/** Convenience: the set of capabilities advertised by the server. */
-export interface ServerCapabilities {
-  tools: boolean;
-  resources: boolean;
-  resourceTemplates: boolean;
-  prompts: boolean;
-}
-
 export type {
   Tool,
-  Prompt,
   ContentBlock,
   CallToolResult,
-  ReadResourceResult,
-  GetPromptResult,
 };

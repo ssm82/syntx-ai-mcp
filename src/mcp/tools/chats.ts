@@ -1,5 +1,6 @@
 import type { SyntxTool, McpContext } from '../registry';
 import { textResult, toMcpError } from '../errors';
+import { wrapSdk } from './_helpers';
 
 /**
  * Chat & messaging tools — the primary conversational surface of the server.
@@ -13,7 +14,6 @@ import { textResult, toMcpError } from '../errors';
 export const chatsTools: SyntxTool[] = [
   {
     name: 'list-chats',
-    capability: { networkCall: true },
     description: 'List the user chats, optionally filtered by scope or a search query.',
     inputSchema: {
       type: 'object',
@@ -25,23 +25,20 @@ export const chatsTools: SyntxTool[] = [
       },
       additionalProperties: false,
     },
-    async handler(args, ctx) {
-      try {
-        const result = await ctx.syntx.chats.list({
-          scope: args.scope as string | undefined,
-          search: args.search as string | undefined,
-          direction: args.direction as 'older' | 'newer' | undefined,
-          page_size: args.page_size as number | undefined,
-        });
-        return textResult(JSON.stringify(result, null, 2));
-      } catch (err) {
-        return toMcpError(err, 'list-chats');
-      }
-    },
+    handler: wrapSdk<
+      { scope?: string; search?: string; direction?: 'older' | 'newer'; page_size?: number },
+      unknown
+    >('list-chats', async (args, ctx) =>
+      ctx.syntx.chats.list({
+        scope: args.scope,
+        search: args.search,
+        direction: args.direction,
+        page_size: args.page_size,
+      }),
+    ),
   },
   {
     name: 'create-chat',
-    capability: { networkCall: true },
     description: 'Create a new syntx.ai chat session and return its UUID. A title is required by the API.',
     inputSchema: {
       type: 'object',
@@ -53,22 +50,19 @@ export const chatsTools: SyntxTool[] = [
       required: ['title'],
       additionalProperties: false,
     },
-    async handler(args, ctx) {
-      try {
-        const chat = await ctx.syntx.chats.create({
-          title: String(args.title),
-          scope: (args.scope as string | undefined) ?? 'text',
-          model: args.model as string | undefined,
-        });
-        return textResult(JSON.stringify(chat, null, 2));
-      } catch (err) {
-        return toMcpError(err, 'create-chat');
-      }
-    },
+    handler: wrapSdk<
+      { title: string; scope?: string; model?: string },
+      unknown
+    >('create-chat', async (args, ctx) =>
+      ctx.syntx.chats.create({
+        title: args.title,
+        scope: args.scope ?? 'text',
+        model: args.model,
+      }),
+    ),
   },
   {
     name: 'get-messages',
-    capability: { networkCall: true },
     description: 'Return the message history of a chat (by UUID or numeric id).',
     inputSchema: {
       type: 'object',
@@ -80,21 +74,18 @@ export const chatsTools: SyntxTool[] = [
       required: ['chat_id'],
       additionalProperties: false,
     },
-    async handler(args, ctx) {
-      try {
-        const result = await ctx.syntx.chats.getMessages(String(args.chat_id), {
-          page_size: args.page_size as number | undefined,
-          direction: args.direction as 'older' | 'newer' | undefined,
-        });
-        return textResult(JSON.stringify(result, null, 2));
-      } catch (err) {
-        return toMcpError(err, 'get-messages');
-      }
-    },
+    handler: wrapSdk<
+      { chat_id: string; page_size?: number; direction?: 'older' | 'newer' },
+      unknown
+    >('get-messages', async (args, ctx) =>
+      ctx.syntx.chats.getMessages(args.chat_id, {
+        page_size: args.page_size,
+        direction: args.direction,
+      }),
+    ),
   },
   {
     name: 'send-message',
-    capability: { externalExfiltration: true, networkCall: true, costSideEffect: true },
     description:
       'Send a message (prompt) with optional uploaded-file attachments to an existing chat and return immediately. ' +
       'The assistant response is generated asynchronously — poll with `wait-for-response` ' +
@@ -183,7 +174,6 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'wait-for-response',
-    capability: { networkCall: true },
     description:
       'Block until the latest assistant message in a chat finishes generating, then return its text and media URLs. ' +
       'Resolves when every message_object[i].completed === true — including image / video / audio / file-only replies. ' +
@@ -227,7 +217,6 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'ask',
-    capability: { networkCall: true, costSideEffect: true },
     description:
       'One-shot helper: create a chat, send a prompt, wait for the completed assistant reply, and return it. ' +
       'Ideal for stateless Q&A. The created chat UUID is included in the response for follow-ups. ' +
@@ -235,7 +224,7 @@ export const chatsTools: SyntxTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'The prompt to send.' },
+        prompt: { type: 'string', description: 'The prompt text to send.' },
         title: { type: 'string', description: 'Chat title. Defaults to a truncated prompt.' },
         ai_name: { type: 'string' },
         model_type: { type: 'string' },
@@ -297,7 +286,6 @@ export const chatsTools: SyntxTool[] = [
   },
   {
     name: 'stream-message',
-    capability: { networkCall: true, costSideEffect: true },
     description:
       'One-shot streaming chat: opens a WSS connection, sends the prompt, and ' +
       'streams the assistant reply in real time. Intermediate progress is ' +
@@ -308,7 +296,7 @@ export const chatsTools: SyntxTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'The prompt to send.' },
+        prompt: { type: 'string', description: 'The prompt text to send.' },
         scope: { type: 'string', default: 'text' },
         model: { type: 'string', description: 'Initial model for the chat.' },
         ai_name: { type: 'string' },
@@ -333,27 +321,7 @@ export const chatsTools: SyntxTool[] = [
     },
   },
   {
-    name: 'generate-title',
-    capability: { networkCall: true, costSideEffect: true },
-    description: 'Ask syntx.ai to auto-generate a title for an existing chat (by UUID).',
-    inputSchema: {
-      type: 'object',
-      properties: { chat_uuid: { type: 'string' } },
-      required: ['chat_uuid'],
-      additionalProperties: false,
-    },
-    async handler(args, ctx) {
-      try {
-        await ctx.syntx.chats.generateTitle(String(args.chat_uuid));
-        return textResult('Title generation requested. Read it back with list-chats.');
-      } catch (err) {
-        return toMcpError(err, 'generate-title');
-      }
-    },
-  },
-  {
     name: 'delete-chat',
-    capability: { networkCall: true },
     description:
       'Permanently delete a chat. Mirrors `syntx.chats.delete`. Issues ' +
       '`DELETE /api/v1/chats/{chat_id}`. This action is destructive and cannot be undone.',
@@ -379,67 +347,7 @@ export const chatsTools: SyntxTool[] = [
     },
   },
   {
-    name: 'pin-chat',
-    capability: { networkCall: true },
-    description:
-      'Toggle pin/unpin for a chat. Mirrors `syntx.chats.pin`. Issues ' +
-      '`POST /api/v1/chats/{chat_id}/pin`. The endpoint toggles pinned state, so call again to undo.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        chat_id: { type: 'string', description: 'Chat UUID or numeric id (required).' },
-      },
-      required: ['chat_id'],
-      additionalProperties: false,
-    },
-    async handler(args, ctx) {
-      const chatId = String(args.chat_id ?? '').trim();
-      if (!chatId) {
-        return toMcpError(new Error('"chat_id" must be a non-empty string'), 'pin-chat');
-      }
-      try {
-        await ctx.syntx.chats.pin(chatId);
-        return textResult(`Toggled pin state for chat ${chatId}.`);
-      } catch (err) {
-        return toMcpError(err, 'pin-chat');
-      }
-    },
-  },
-  {
-    name: 'move-chat-to-project',
-    capability: { networkCall: true },
-    description:
-      'Move a chat into a project (folder). Mirrors `syntx.chats.moveToFolder`. ' +
-      'Issues `POST /api/v1/chats/{chat_id}/move` with `{ folder_id }`.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        chat_id: { type: 'string', description: 'Chat UUID or numeric id (required).' },
-        folder_id: { type: 'string', description: 'Destination folder UUID (required).' },
-      },
-      required: ['chat_id', 'folder_id'],
-      additionalProperties: false,
-    },
-    async handler(args, ctx) {
-      const chatId = String(args.chat_id ?? '').trim();
-      const folderId = String(args.folder_id ?? '').trim();
-      if (!chatId) {
-        return toMcpError(new Error('"chat_id" must be a non-empty string'), 'move-chat-to-project');
-      }
-      if (!folderId) {
-        return toMcpError(new Error('"folder_id" must be a non-empty string'), 'move-chat-to-project');
-      }
-      try {
-        await ctx.syntx.chats.moveToFolder(chatId, folderId);
-        return textResult(`Moved chat ${chatId} to project ${folderId}.`);
-      } catch (err) {
-        return toMcpError(err, 'move-chat-to-project');
-      }
-    },
-  },
-  {
     name: 'get-inprogress',
-    capability: { networkCall: true },
     description:
       'Return the in-progress generations for a chat. Mirrors `syntx.chats.getInProgress`. ' +
       'Hits `GET /api/v1/chats/{chat_id}/inprogress`. An empty array means nothing is currently ' +
@@ -453,18 +361,12 @@ export const chatsTools: SyntxTool[] = [
       required: ['chat_id'],
       additionalProperties: false,
     },
-    async handler(args, ctx) {
-      try {
-        const result = await ctx.syntx.chats.getInProgress(String(args.chat_id));
-        return textResult(JSON.stringify(result, null, 2));
-      } catch (err) {
-        return toMcpError(err, 'get-inprogress');
-      }
-    },
+    handler: wrapSdk<{ chat_id: string }, unknown>('get-inprogress', async (args, ctx) =>
+      ctx.syntx.chats.getInProgress(args.chat_id),
+    ),
   },
   {
     name: 'get-favorite-messages',
-    capability: { networkCall: true },
     description:
       'Return the favorite (bookmarked) messages for a chat. Mirrors `syntx.chats.getFavoriteMessages`. ' +
       'Hits `GET /api/v1/chats/favorite/{chat_id}/messages`. This is the only way to read ' +
@@ -479,17 +381,15 @@ export const chatsTools: SyntxTool[] = [
       required: ['chat_id'],
       additionalProperties: false,
     },
-    async handler(args, ctx) {
-      try {
-        const result = await ctx.syntx.chats.getFavoriteMessages(String(args.chat_id), {
-          page_size: args.page_size as number | undefined,
-          direction: args.direction as 'older' | 'newer' | undefined,
-        });
-        return textResult(JSON.stringify(result, null, 2));
-      } catch (err) {
-        return toMcpError(err, 'get-favorite-messages');
-      }
-    },
+    handler: wrapSdk<
+      { chat_id: string; page_size?: number; direction?: 'older' | 'newer' },
+      unknown
+    >('get-favorite-messages', async (args, ctx) =>
+      ctx.syntx.chats.getFavoriteMessages(args.chat_id, {
+        page_size: args.page_size,
+        direction: args.direction,
+      }),
+    ),
   },
 ];
 
