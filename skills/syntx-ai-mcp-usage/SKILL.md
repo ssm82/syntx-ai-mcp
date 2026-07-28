@@ -1,11 +1,11 @@
 ---
 name: syntx-ai-mcp-usage
-description: Operates the syntx.ai MCP tools (chat, ask, stream-message, files, design, audio, auth, model catalog). Use when calling syntx-ai-mcp_* tools and the JSON schema alone is insufficient — long prompts that exceed the default ask timeout, model identifier selection, chat lifecycle (create / continue / recover), streaming mode choice, security caveats. Use when an existing chat must be resumed or a fresh one created.
+description: Operates the syntx.ai MCP tools (chat, ask, stream-message, files, design, audio, video, folders, auth, model catalog). Use when calling syntx-ai-mcp_* tools and the JSON schema alone is insufficient — long prompts that exceed the default ask timeout, model identifier selection, chat lifecycle (create / continue / recover), streaming mode choice, security caveats. Use when an existing chat must be resumed or a fresh one created.
 license: MIT
 compatibility: Requires syntx.ai bearer JWT (set via set-token tool). Targets Kilo / Claude Code agents with the syntx-ai-mcp MCP server installed.
 metadata:
   author: syntx-ai-mcp contributors
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # syntx-ai-mcp Usage
@@ -26,29 +26,64 @@ Trigger on any of these conditions:
 
 ## Tool inventory — quick reference
 
+The exposed surface is **28 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 release notes](../../CHANGELOG.md) for the full removal list). They cluster into eight surfaces.
+
+### Auth (2)
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
-| `set-token` | Install bearer JWT in-process | yes (fast) | Token lives in memory only; lost on restart. |
-| `whoami` | Verify auth, return `User` profile | yes | Returns full profile — sanitize before logging. |
-| `validate-token` | Non-throwing auth check | yes | Returns `{ authenticated }`; preferred over `whoami` for checks. |
+| `set-token` | Install bearer JWT in-process | yes (fast) | Token lives in memory only; lost on restart. Rejected over HTTP transport. |
+| `whoami` | Identity check, returns `{ authenticated, user }` | yes | Never errors on missing/invalid token — reports `authenticated: false`. Sanitize before logging. |
+
+### Identity (2)
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
+| `get-profile` | Full profile (errors when unauthorized) | yes | Same fields as `whoami` but raises an MCP error when no token is set. |
+| `get-balance` | Token balance for the authenticated user | yes | |
+
+### Model catalog (3)
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
 | `list-ai-services` | List syntx.ai providers | yes | Use to discover `ai_name` values. |
 | `list-models` | List models with constraints | yes | Source of truth for `model_type` identifiers. |
 | `get-model-info` | Per-model pricing/limits | yes | Required for cost estimation. |
-| `get-settings` | Read effective runtime config | yes | Confirm `defaultAI` and `default model`. |
-| `set-default-ai` / `set-default-model` | Change defaults | yes | Affects tools that omit `ai_name`/`model_type`. |
-| `create-chat` | Create persistent chat | yes | Returns `uuid`; safe to call before prompt is final. |
+
+### Chats (10)
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
 | `list-chats` | List existing chats | yes | Filter by `scope` or `search=<title>` for recovery. |
+| `create-chat` | Create persistent chat | yes | Returns `uuid`; safe to call before prompt is final. |
 | `get-messages` | Read chat history | yes | Use `direction="newer"` after recovery. |
-| `generate-title` | Auto-title a chat | yes | Cosmetic. |
+| `get-inprogress` | Active in-progress generations for a chat | yes | Used internally by `wait-for-response` to gate on prior requests — surface for recovery after interrupted generations. |
+| `get-favorite-messages` | Starred/bookmarked messages for a chat | yes | Only way to read starred messages through MCP — `get-messages` does not include them. |
+| `delete-chat` | Permanently delete a chat | yes | Destructive — confirm before invoking. |
 | `send-message` | Append user message | no | Pairs with `wait-for-response`. |
 | `wait-for-response` | Block for assistant reply | yes | Use after `send-message`. |
 | `ask` | One-shot: create + send + wait | yes | Default timeout 60 s — often too short. |
-| `stream-message` | Stream via WSS with poll fallback | yes | `mode: "auto"` / `"stream"` / `"poll"` / `"off"`. |
+| `stream-message` | Stream with REST polling + per-chunk notifications | yes | `mode: "auto"` / `"stream"` / `"poll"`. |
+
+### Files (3)
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
+| `list-uploaded-files` | List prior uploads | yes | Useful when resuming work. |
 | `upload-files` | Upload ≤10 files, ≤100 MB each | yes | `path` is LFI on non-stdio transport — see security caveats. |
+| `delete-file` | Delete an uploaded file by `file_id` or `url` | yes | Destructive — confirm before invoking. |
+
+### Media (5)
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
 | `transcribe` | Audio → text | yes | Same LFI caveat for `path` parameter. |
 | `generate-image` | Image generation | yes | Requires target `chat_uuid`. |
-| `delete-project` / `delete-file` / `add-chats-to-project` | Project/folder ops | yes | Destructive — confirm before invoking. |
-| `list-uploaded-files` | List prior uploads | yes | Useful when resuming work. |
+| `generate-audio` | TTS / voice-change / music generation | yes | Requires target `chat_uuid`. |
+| `generate-video` | Video generation | yes | Requires target `chat_id` (note: `chat_id`, not `chat_uuid`). |
+| — | — | — | — |
+
+### Projects (4) — `syntx://folders`
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
+| `list-projects` | List projects for a scope (`text` / `image` / `video` / `audio`) | yes | |
+| `create-project` | Create a project and optionally seed it with chats | yes | |
+| `add-chats-to-project` | Add chats to an existing project | yes | |
+| `delete-project` | Permanently delete a project | yes | Destructive — confirm before invoking. |
 
 For full per-tool schemas, rely on MCP `tools/list` — they are the source of truth.
 
@@ -58,7 +93,7 @@ For full per-tool schemas, rely on MCP `tools/list` — they are the source of t
 
 - The literal model id for the default GPT-5 family class is **`gpt-5.5`** — no dot-as-decimal, no `-mini` suffix.
 - Initial guesses like `gpt-5-mini`, `gpt-5.5-mini`, `gpt-5-mini-2025-08-07` return `400 — model not found`. On `400`, the server's `detail.message` echoes the full list of valid `value` strings — copy it verbatim.
-- `ai_name` (provider identifier such as `"chatgpt"`, `"gemini"`, `"claude"`) and `model_type` (per-model id) are independent dimensions. Omitting either falls back to `defaultAI` / `default model` — see `get-settings`.
+- `ai_name` (provider identifier such as `"chatgpt"`, `"gemini"`, `"claude"`) and `model_type` (per-model id) are independent dimensions. Omitting either falls back to the server's `defaultAI` / `defaultModel` (configured at startup via `SYNTX_DEFAULT_AI` / `SYNTX_DEFAULT_MODEL`).
 - Fresh model ids are published only through `list-models`. Cache nothing.
 
 Discovery workflow before any model-sensitive call:
@@ -199,8 +234,8 @@ Bearer JWT lives **in process memory only**. The lifetime is:
 Verification flow:
 
 1. `set-token(token)` → installs JWT.
-2. `whoami` → returns the `User` profile (full fields, including internal ones — see security caveats).
-3. `validate-token` → non-throwing alternative that returns `{ authenticated: true | false }`. Prefer this for liveness checks.
+2. `whoami` → returns `{ authenticated, user }`. Never errors on missing/invalid token — reports `authenticated: false`. Use this for liveness checks.
+3. `get-profile` → returns the full profile and raises an MCP error when no token is set. Use this when you want a hard failure on missing auth rather than a non-erroring report.
 
 The legacy `SyntxWebSocket` class used to send tokens in URL query strings. It is `@deprecated` and tokens must never appear in URL parameters. Use `ask` / `send-message` only.
 
@@ -226,10 +261,10 @@ Quick index — full details in [`references/failure-modes.md`](references/failu
 - **`ask` timeout (>60 s)** → chat already created server-side; do **not** re-call `ask`. Use Pattern C recovery.
 - **`ask` returns `MCP error -32001: Request timed out`** → MCP-layer timeout fired before the tool-layer `timeout`; the chat is already created server-side. Do **not** retry `ask` (same failure will recur). For long prompts to deep models, go straight to Pattern B (`create-chat` + `send-message` + `wait-for-response`) with explicit `timeout` on `wait-for-response` — for one-off `ask` failures on short prompts, Pattern C recovery is fine. See [MCP-layer timeout vs tool-layer timeout](#mcp-layer-timeout-vs-tool-layer-timeout).
 - **`completed: false` with empty text in `get-messages`** → assistant still generating; `wait-for-response` with longer timeout, or sleep + re-poll.
-- **Token missing / 401** → `set-token` then `validate-token` (or `whoami`) to confirm.
+- **Token missing / 401** → `set-token` then `whoami` to confirm (`authenticated: true`).
 - **`upload-files` permission/path error over HTTP** → transport guard rejected `path`; switch to `content_base64`.
 - **`generate-image` with no `chat_uuid`** → every design service call needs a target chat; create one first via `create-chat(scope="image")`.
-- **`set-default-ai` silently ignored** → check `get-settings` to confirm; some tools require explicit `ai_name` regardless of default.
+- **`get-profile` errors with `Unauthorized`** → no token is installed. Use `set-token` (stdio only — over HTTP, install via `SYNTX_TOKEN` at server start).
 
 ## End-to-end worked example
 
