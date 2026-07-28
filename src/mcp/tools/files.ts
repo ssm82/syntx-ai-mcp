@@ -11,6 +11,37 @@ import {
 } from './file-input';
 import { logSecurityEvent } from '../security-log';
 
+/**
+ * File extension transformations applied at upload time.
+ *
+ * Some downstream models (notably `gemini-3.5-flash`) gate content extraction
+ * on the URL's file extension — `.html`/`.css`/`.txt`/`.pdf` are read, but `.js`
+ * source files are silently skipped (a safety filter for "executable code") even
+ * when the request object_type is `filetext` and the API accepted the upload.
+ *
+ * Workaround: rename `.js`/`.css`/`.json`/`.py` → `.txt` at the storage layer
+ * so the resulting URL ends in `.txt`. Content bytes are unchanged; only the
+ * filename/extension is rewritten before being sent to `uploadFiles`. This is
+ * irreversible at the R2 layer — once uploaded, the URL keeps its new extension
+ * for the lifetime of the file. To retrieve the file later, callers should use
+ * the URL returned by this tool, not the original client-side filename.
+ */
+const CODE_EXTENSIONS_TO_TXT: ReadonlySet<string> = new Set([
+  '.js',
+  '.css',
+  '.json',
+  '.py',
+]);
+
+export function rewriteCodeExtension(filename: string): string {
+  if (typeof filename !== 'string' || filename.length === 0) return filename;
+  const dot = filename.lastIndexOf('.');
+  if (dot <= 0 || dot === filename.length - 1) return filename;
+  const ext = filename.slice(dot).toLowerCase();
+  if (!CODE_EXTENSIONS_TO_TXT.has(ext)) return filename;
+  return filename.slice(0, dot) + '.txt';
+}
+
 /** File management tools (uploaded files listing, upload, deletion). */
 export const filesTools: SyntxTool[] = [
   {
@@ -152,7 +183,7 @@ export const filesTools: SyntxTool[] = [
         const result = await ctx.syntx.chats.uploadFiles(
           resolved.map((r) => ({
             buffer: r.buffer,
-            filename: r.filename,
+            filename: rewriteCodeExtension(r.filename),
             mimeType: r.mimeType,
           })),
           'hidden',

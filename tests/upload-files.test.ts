@@ -9,6 +9,7 @@ import {
   resolveAllowedRoots,
   resolveSafePath,
 } from '../src/mcp/tools/file-input';
+import { rewriteCodeExtension } from '../src/mcp/tools/files';
 import { chatsTools } from '../src/mcp/tools/chats';
 import type { McpContext } from '../src/mcp/registry';
 import { ChatsResource } from '../src/resources/chats';
@@ -308,4 +309,75 @@ test('upload-files MCP tool uses explicit model_type over defaultModel', async (
     ctx,
   );
   assert.equal(formToObject(calls[0].form).model_type, 'claude-sonnet-4');
+});
+
+// ── rewriteCodeExtension: code-ext → .txt rename ──────────────────────────
+
+test('rewriteCodeExtension: .js / .css / .json / .py become .txt', () => {
+  assert.equal(rewriteCodeExtension('app.js'), 'app.txt');
+  assert.equal(rewriteCodeExtension('style.css'), 'style.txt');
+  assert.equal(rewriteCodeExtension('package.json'), 'package.txt');
+  assert.equal(rewriteCodeExtension('script.py'), 'script.txt');
+});
+
+test('rewriteCodeExtension: case-insensitive match', () => {
+  assert.equal(rewriteCodeExtension('APP.JS'), 'APP.txt');
+  assert.equal(rewriteCodeExtension('Style.CSS'), 'Style.txt');
+});
+
+test('rewriteCodeExtension: compound names — only the last extension is replaced', () => {
+  assert.equal(rewriteCodeExtension('app.min.js'), 'app.min.txt');
+  assert.equal(rewriteCodeExtension('theme.dark.css'), 'theme.dark.txt');
+});
+
+test('rewriteCodeExtension: leaves .html, .txt, .pdf, no-ext, hidden files alone', () => {
+  assert.equal(rewriteCodeExtension('page.html'), 'page.html');
+  assert.equal(rewriteCodeExtension('notes.txt'), 'notes.txt');
+  assert.equal(rewriteCodeExtension('paper.pdf'), 'paper.pdf');
+  assert.equal(rewriteCodeExtension('.bashrc'), '.bashrc');
+  assert.equal(rewriteCodeExtension('noext'), 'noext');
+  assert.equal(rewriteCodeExtension(''), '');
+  // .ts is intentionally NOT on the list — only the four requested extensions.
+  assert.equal(rewriteCodeExtension('app.ts'), 'app.ts');
+  assert.equal(rewriteCodeExtension('app.go'), 'app.go');
+});
+
+test('upload-files MCP tool renames .js / .css / .json / .py to .txt before sending to storage', async () => {
+  const observed: Array<{ filename: string }> = [];
+  const ctx = {
+    syntx: {
+      chats: {
+        uploadFiles: async (files: unknown) => {
+          for (const f of files as Array<{ filename: string }>) {
+            observed.push({ filename: f.filename });
+          }
+          return { files: [] };
+        },
+      },
+    },
+    config: { defaultModel: 'gpt-5.5', transport: 'stdio' },
+  } as unknown as McpContext;
+  const { filesTools } = await import('../src/mcp/tools/files');
+  const tool = filesTools.find((t) => t.name === 'upload-files');
+  if (!tool) throw new Error('upload-files tool not found');
+
+  const body = Buffer.from('console.log(1)');
+  await tool.handler(
+    {
+      files: [
+        { content_base64: body.toString('base64'), filename: 'app.js' },
+        { content_base64: body.toString('base64'), filename: 'style.css' },
+        { content_base64: body.toString('base64'), filename: 'package.json' },
+        { content_base64: body.toString('base64'), filename: 'utils.py' },
+        { content_base64: body.toString('base64'), filename: 'page.html' },
+        { content_base64: body.toString('base64'), filename: 'notes.txt' },
+      ],
+    },
+    ctx,
+  );
+
+  assert.deepEqual(
+    observed.map((o) => o.filename),
+    ['app.txt', 'style.txt', 'package.txt', 'utils.txt', 'page.html', 'notes.txt'],
+  );
 });

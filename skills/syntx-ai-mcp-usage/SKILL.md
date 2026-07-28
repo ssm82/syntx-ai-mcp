@@ -144,6 +144,7 @@ Optional fields:
 - Each uploaded file is ≤ 100 MB.
 - Image resolution / file size limits depend on the downstream AI model (not enforced by the upload API).
 - The attached file must be uploaded to syntx.ai R2 storage first (via `upload-files`) — external URLs are not supported.
+- **Some downstream models gate content extraction on the URL's file extension.** For example, `gemini-3.5-flash` reads `.html`/`.css`/`.txt`/`.pdf` fine but appears to skip content for URLs ending in `.js` (likely a safety filter for executable code), even though the `object_type` is `filetext` and the API request itself succeeded. The MCP server now handles this automatically: `upload-files` silently rewrites `.js`, `.css`, `.json`, `.py` → `.txt` on the storage layer (filename and URL extension), but content bytes are unchanged. Only the **last** extension is replaced — `app.min.js` → `app.min.txt`, `theme.dark.css` → `theme.dark.txt`. The rewritten URL is what `upload-files` returns; pass that URL when attaching via `send-message`. Other extensions (`.ts`, `.go`, `.rs`) are not rewritten. Other models (e.g. `gpt-5.5`) do not exhibit this gate, so the rename is harmless there.
 
 ## Timeouts & streaming modes
 

@@ -9,10 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `upload-files` silently rewrites `.js`, `.css`, `.json`, `.py` to `.txt` on
+  the storage layer (filename and URL extension; content bytes unchanged).
+  Rationale: some downstream models (notably `gemini-3.5-flash`) gate content
+  extraction on the URL's file extension and silently ignore `.js` attachments
+  even when the upstream API request succeeded. The rewrite only touches the
+  last extension (`app.min.js` → `app.min.txt`); other extensions are passed
+  through verbatim. The rewritten URL is what `upload-files` returns.
 - `send-message` now accepts uploaded files through `attachments` and sends the
   upstream `objects` payload expected by syntx.ai. Each attachment reuses the
   `url`, `filename`, and `mime_type` returned by `upload-files`; `type` can be
-  supplied explicitly for `image`, `video`, `audio`, or `file`.
+  supplied explicitly for `image`, `video`, or `audio`.
 
 ### Security
 - **M2 — request-scoped credentials over HTTP.** `createMcpServer` /
