@@ -148,6 +148,7 @@ test('send-message forwards uploaded files as attachment message objects', async
   const ctx = {
     syntx: {
       chats: {
+        exists: async () => true,
         sendMessage: async (...args: unknown[]) => {
           calls.push(args);
         },

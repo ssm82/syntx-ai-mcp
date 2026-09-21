@@ -55,6 +55,12 @@ function fakeClient(opts: { messagePages: Message[][]; inProgress?: unknown[] })
         const page = opts.messagePages.length > 1 ? opts.messagePages.shift()! : opts.messagePages[0];
         return { messages: page, pagination: { limit: 50, offset: 0, total: page.length } };
       }
+      // Single-chat existence probe (added for `chat-exists` pre-flight).
+      // Default to a stub Chat so existing tests that don't care about the
+      // probe still pass; tests that need deletion semantics override this.
+      if (/^\/api\/v1\/chats\/[^/]+$/.test(path)) {
+        return { id: 1, uuid: path.split('/').pop(), message_count: 0 };
+      }
       throw new Error(`unexpected GET ${path}`);
     },
     async post() {

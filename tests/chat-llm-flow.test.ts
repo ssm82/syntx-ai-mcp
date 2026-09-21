@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { LlmResource } from '../src/resources/llm';
 import { ChatsResource } from '../src/resources/chats';
+import { SyntxAPIError } from '../src/errors';
 import type { CompletedMessage } from '../src/types';
 
 interface CapturedCall {
@@ -271,5 +272,115 @@ test('ChatsResource.cancelMessage treats 404 as success', async () => {
     'https://api.syntx.ai/api/v1/chats/chat-x/messages/msg-y/cancel',
   );
   assert.equal(calls[0].init.method, 'POST');
+  restore();
+});
+
+test('ChatsResource.get fetches a single chat by id or uuid', async () => {
+  const { calls, restore } = installFetchMock(
+    () =>
+      new Response(
+        JSON.stringify({
+          id: 20872358,
+          uuid: '968e99a3-9e32-4534-ade7-6291cf7c75bc',
+          title: 'Демо-презентация как короткометражка',
+          scope: 'text',
+          deleted: false,
+          message_count: 12,
+          message_limit: 800,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+  );
+
+  const chats = new ChatsResource(makeChatsClient());
+  const chat = await chats.get('968e99a3-9e32-4534-ade7-6291cf7c75bc');
+
+  assert.equal(calls[0].url, 'https://api.syntx.ai/api/v1/chats/968e99a3-9e32-4534-ade7-6291cf7c75bc');
+  assert.equal(calls[0].init.method, undefined);
+  assert.equal(chat.uuid, '968e99a3-9e32-4534-ade7-6291cf7c75bc');
+  assert.equal(chat.message_count, 12);
+  restore();
+});
+
+test('ChatsResource.exists returns true on 200 and false on 404', async () => {
+  const seq: Array<Response> = [
+    new Response(JSON.stringify({ id: 1, uuid: 'u1', message_count: 2 }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }),
+    new Response(JSON.stringify({ detail: 'Chat not found' }), {
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+    }),
+  ];
+  const { restore } = installFetchMock(() => seq.shift()!);
+
+  // The shared `makeChatsClient` mock swallows non-2xx responses; we need a
+  // mock that mirrors `BaseClient.handleResponse` and throws SyntxAPIError.
+  const client = {
+    baseURL: 'https://api.syntx.ai',
+    getToken: () => 'tok',
+    get: async <T>(path: string): Promise<T> => {
+      const response = await fetch(`https://api.syntx.ai${path}`, {
+        headers: { Authorization: 'Bearer tok' },
+      });
+      if (!response.ok) {
+        const body = await response.json();
+        throw new SyntxAPIError(
+          (body as { message?: string }).message ?? response.statusText,
+          response.status,
+          undefined,
+          body,
+        );
+      }
+      return (await response.json()) as T;
+    },
+  } as unknown as import('../src/client').BaseClient;
+
+  const chats = new ChatsResource(client);
+  assert.equal(await chats.exists('u1'), true);
+  assert.equal(await chats.exists('u-missing'), false);
+
+  restore();
+});
+
+test('ChatsResource.exists rethrows non-404 errors (5xx, network)', async () => {
+  const { restore } = installFetchMock(
+    () =>
+      new Response(JSON.stringify({ detail: 'server boom' }), {
+        status: 503,
+        headers: { 'content-type': 'application/json' },
+      }),
+  );
+
+  const client = {
+    baseURL: 'https://api.syntx.ai',
+    getToken: () => 'tok',
+    get: async <T>(path: string): Promise<T> => {
+      const response = await fetch(`https://api.syntx.ai${path}`, {
+        headers: { Authorization: 'Bearer tok' },
+      });
+      if (!response.ok) {
+        const body = await response.json();
+        throw new SyntxAPIError(
+          (body as { message?: string }).message ?? response.statusText,
+          response.status,
+          undefined,
+          body,
+        );
+      }
+      return (await response.json()) as T;
+    },
+  } as unknown as import('../src/client').BaseClient;
+
+  const chats = new ChatsResource(client);
+  await assert.rejects(
+    () => chats.exists('u-x'),
+    (err: unknown) => {
+      assert.equal((err as { status?: number }).status, 503);
+      return true;
+    },
+  );
+
   restore();
 });

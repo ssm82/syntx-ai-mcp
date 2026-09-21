@@ -587,6 +587,39 @@ export class ChatsResource {
   }
 
   /**
+   * Fetch a single chat's metadata by id or uuid.
+   *
+   * `GET /api/v1/chats/{chatId}` → `200 Chat` if the chat exists,
+   * `404 {"detail":"Chat not found"}` otherwise (the latter surfaces as
+   * `SyntxAPIError { status: 404 }`).
+   *
+   * The server accepts both numeric ids (`20872358`) and uuids
+   * (`968e99a3-…`) in the path. Useful as a pre-flight existence check
+   * before `sendMessage` / `streamMessage` when the caller may be holding
+   * a stale reference (e.g. a soft-deleted chat that no longer appears
+   * in `list` but is still accessible for read/write).
+   */
+  async get(chatId: string): Promise<Chat> {
+    return this.client.get<Chat>(`/api/v1/chats/${chatId}`);
+  }
+
+  /**
+   * Lightweight existence probe. Returns `true` iff `GET /api/v1/chats/{chatId}`
+   * responds `200`. Any non-2xx response (404 in particular) returns `false`.
+   * Other errors (network, 5xx) propagate so the caller can distinguish
+   * "definitely missing" from "could not tell".
+   */
+  async exists(chatId: string): Promise<boolean> {
+    try {
+      await this.get(chatId);
+      return true;
+    } catch (err) {
+      if (err instanceof SyntxAPIError && err.status === 404) return false;
+      throw err;
+    }
+  }
+
+  /**
    * Delete a chat.
    * DELETE /api/v1/chats/{chatId}
    */

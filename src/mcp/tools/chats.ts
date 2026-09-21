@@ -1,6 +1,7 @@
 import type { SyntxTool, McpContext } from '../registry';
 import { textResult, toMcpError } from '../errors';
 import { wrapSdk } from './_helpers';
+import { SyntxAPIError } from '../../errors';
 
 /**
  * Chat & messaging tools — the primary conversational surface of the server.
@@ -85,6 +86,30 @@ export const chatsTools: SyntxTool[] = [
     ),
   },
   {
+    name: 'chat-exists',
+    description:
+      'Pre-flight check: returns whether a chat (by id or uuid) currently exists on the server. ' +
+      'Use this before `send-message` if you may be holding a stale reference. ' +
+      'Backed by `GET /api/v1/chats/{chatId}` — 404 maps to `false`, 200 maps to `true`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chat_id: { type: 'string', description: 'Chat numeric id or uuid.' },
+      },
+      required: ['chat_id'],
+      additionalProperties: false,
+    },
+    handler: wrapSdk<{ chat_id: string }, { exists: boolean; chat_id: string }>(
+      'chat-exists',
+      async (args, ctx) => {
+        const chatId = String(args.chat_id);
+        const exists = await ctx.syntx.chats.exists(chatId);
+        return { exists, chat_id: chatId };
+      },
+    ),
+  },
+
+  {
     name: 'send-message',
     description:
       'Send a message (prompt) with optional uploaded-file attachments to an existing chat and return immediately. ' +
@@ -140,6 +165,19 @@ export const chatsTools: SyntxTool[] = [
           type?: string;
         }> | undefined) ?? [];
         const chatId = String(args.chat_id);
+
+        // Pre-flight existence check: `llm/generate` happily accepts a stale
+        // (e.g. soft-deleted) chat_uuid and silently creates a floating job;
+        // `chats/{id}/messages` likewise returns 4xx for missing chats but only
+        // after a round-trip + side-effects. Validating up front lets us return
+        // a clear `chat_not_found` error before any generation work.
+        if (!(await ctx.syntx.chats.exists(chatId))) {
+          throw new SyntxAPIError(
+            `Chat ${chatId} not found. Use chat-exists to validate before sending, or list-chats to find a valid id.`,
+            404,
+            'chat_not_found',
+          );
+        }
 
         const flow = routeTextFlow(ctx, { scope: 'text' });
         if (flow && attachments.length === 0) {
@@ -209,6 +247,13 @@ export const chatsTools: SyntxTool[] = [
     async handler(args, ctx, extra) {
       try {
         const chatId = String(args.chat_id);
+        if (!(await ctx.syntx.chats.exists(chatId))) {
+          throw new SyntxAPIError(
+            `Chat ${chatId} not found. Use chat-exists to validate, or list-chats to find a valid id.`,
+            404,
+            'chat_not_found',
+          );
+        }
         const flow = routeTextFlow(ctx, { scope: 'text' });
         if (flow) {
           const completed = await flow.waitForResponse(chatId, {
