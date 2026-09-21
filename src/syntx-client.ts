@@ -10,6 +10,7 @@ import { DesignResource } from './resources/design';
 import { AudioResource } from './resources/audio';
 import { VideoResource } from './resources/video';
 import { AppResource } from './resources/app';
+import { LlmResource } from './resources/llm';
 
 /**
  * Main entry point for the Syntx AI SDK.
@@ -38,6 +39,7 @@ export class SyntxClient {
   readonly audio: AudioResource;
   readonly video: VideoResource;
   readonly app: AppResource;
+  readonly llm: LlmResource;
 
   constructor(config?: SyntxClientConfig) {
     this.client = new BaseClient(config);
@@ -54,6 +56,7 @@ export class SyntxClient {
     this.audio = new AudioResource(this.client);
     this.video = new VideoResource(this.client);
     this.app = new AppResource();
+    this.llm = new LlmResource(this.client);
   }
 
   /**

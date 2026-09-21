@@ -1,5 +1,5 @@
 import { BaseClient } from '../client';
-import { SyntxAbortError, SyntxTimeoutError } from '../errors';
+import { SyntxAPIError, SyntxAbortError, SyntxTimeoutError } from '../errors';
 import type {
   Chat,
   MessagesResponse,
@@ -608,5 +608,25 @@ export class ChatsResource {
    */
   async moveToFolder(chatId: string, folderId: string): Promise<void> {
     await this.client.post(`/api/v1/chats/${chatId}/move`, { folder_id: folderId });
+  }
+
+  /**
+   * Cancel an in-flight message generation.
+   *
+   * `POST /api/v1/chats/{chatId}/messages/{messageId}/cancel`
+   *
+   * The endpoint is idempotent in practice: a 404 means the message has
+   * already finished (race with completion) and is treated as success so
+   * caller code doesn't have to special-case it.
+   */
+  async cancelMessage(chatId: string, messageId: string): Promise<void> {
+    try {
+      await this.client.post(
+        `/api/v1/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/cancel`,
+      );
+    } catch (err) {
+      if (err instanceof SyntxAPIError && err.status === 404) return;
+      throw err;
+    }
   }
 }

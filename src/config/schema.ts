@@ -53,6 +53,23 @@ export interface McpServerConfig {
   streamMode: StreamMode;
   /** Override the WSS base URL (used by streaming endpoints). */
   wsURL: string;
+  /**
+   * Base URL for the `sse.syntx.ai` Server-Sent Events stream used by the
+   * text-flow `llm/*` namespace. `stream_url` values from the server are
+   * joined onto this origin.
+   */
+  llmSseBaseUrl: string;
+  /**
+   * When true, the chat tools (`ask`, `stream-message`, `send-message`,
+   * `wait-for-response`) bypass the `llm/*` text-flow and use the legacy
+   * `chats/{id}/messages` path with REST polling. Defaults to `false`.
+   */
+  legacyTextTransport: boolean;
+  /**
+   * TTL for the in-memory cache used by `LlmResource.listModels`. The SPA
+   * hits this endpoint frequently, so the SDK caches it for a short window.
+   */
+  listLlmModelsCacheMs: number;
 }
 
 /** Sensible defaults applied when an environment variable is absent. */
@@ -68,6 +85,9 @@ export const DEFAULT_CONFIG: McpServerConfig = {
   httpHostname: '127.0.0.1',
   streamMode: 'auto',
   wsURL: 'wss://api.syntx.ai/api/v1',
+  llmSseBaseUrl: 'https://sse.syntx.ai',
+  legacyTextTransport: false,
+  listLlmModelsCacheMs: 60000,
 };
 
 /** Environment variable names → config keys mapping. */
@@ -86,4 +106,7 @@ export const ENV_KEYS = {
   httpToken: 'MCP_HTTP_TOKEN',
   streamMode: 'SYNTX_STREAM_MODE',
   wsURL: 'SYNTX_WS_URL',
+  llmSseBaseUrl: 'SYNTX_LLM_SSE_BASE_URL',
+  legacyTextTransport: 'SYNTX_LEGACY_TEXT_TRANSPORT',
+  listLlmModelsCacheMs: 'SYNTX_LLM_MODELS_CACHE_MS',
 } as const;

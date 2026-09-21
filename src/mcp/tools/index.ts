@@ -8,6 +8,7 @@ import { filesTools } from './files';
 import { audioTools } from './audio';
 import { foldersTools } from './folders';
 import { videoTools } from './video';
+import { llmTools } from './llm';
 
 /**
  * Central registry of all MCP tools exposed by syntx-ai-mcp.
@@ -23,4 +24,5 @@ export const allTools: SyntxTool[] = [
   ...audioTools,
   ...videoTools,
   ...foldersTools,
+  ...llmTools,
 ];

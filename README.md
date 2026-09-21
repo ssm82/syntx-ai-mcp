@@ -234,6 +234,9 @@ SYNTX_TOKEN="ВАШ_ТОКЕН" npx syntx-ai-mcp --transport http --http-port 80
 | `SYNTX_POLL_TIMEOUT` | number | `600000` | Максимальное ожидание ответа, мс. |
 | `SYNTX_STREAM_MODE` | `auto` \| `stream` \| `poll` \| `off` | `auto` | Стратегия стриминга для `ask` / `stream-message`. Влияет только на `ask` (см. ниже). |
 | `SYNTX_WS_URL` | string | `wss://api.syntx.ai/api/v1` | Базовый URL WSS-эндпоинта. |
+| `SYNTX_LLM_SSE_BASE_URL` | string | `https://sse.syntx.ai` | Базовый URL для SSE-стрима, используемого text-flow `llm/*`. |
+| `SYNTX_LEGACY_TEXT_TRANSPORT` | boolean | `false` | Если `true`, инструменты `ask` / `stream-message` / `send-message` / `wait-for-response` используют устаревший путь `chats/{id}/messages` с REST-поллингом вместо нового `llm/*` (text-flow + SSE). |
+| `SYNTX_LLM_MODELS_CACHE_MS` | number | `60000` | TTL in-memory кэша для `syntx.llm.listModels()`. |
 | `MCP_TRANSPORT` | `stdio` \| `http` | `stdio` | Транспорт MCP-сервера. |
 | `MCP_HTTP_PORT` | number | `3000` | Порт HTTP-транспорта. |
 | `MCP_HTTP_HOSTNAME` | string | `127.0.0.1` | Адрес привязки HTTP-транспорта (loopback по умолчанию). |
@@ -357,12 +360,14 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 | `send-message` | Отправить промпт с опциональными вложениями, вернуть ack (ответ — асинхронно) | `chat_id`*, `prompt`*, `ai_name?`, `model_type?`, `attachments?` |
 | `wait-for-response` | Дождаться завершения генерации и вернуть текст + media-объекты | `chat_id`*, `timeout?`, `poll_interval?` |
 | `ask` ⭐ | One-shot: создать чат → отправить → дождаться ответа | `prompt`*, `title?`, `ai_name?`, `model_type?`, `scope?`, `timeout?`, `poll_interval?`, `mode?` |
-| `stream-message` 🌊 | One-shot со стримингом ответа по WebSocket + `notifications/progress` | `prompt`*, `scope?`, `model?`, `ai_name?`, `model_type?`, `timeout?`, `mode?` |
+| `stream-message` 🌊 | One-shot со стримингом ответа по SSE (`sse.syntx.ai`) + `notifications/progress` | `prompt`*, `scope?`, `model?`, `ai_name?`, `model_type?`, `timeout?`, `mode?` |
+| `cancel-message` | Отменить in-flight генерацию сообщения | `chat_id`*, `message_id`* |
+| `get-llm-limits` | Текущие LLM-лимиты (окна 6h / 7d) | — |
 | `generate-title` | Авто-заголовок для чата | `chat_uuid`* |
 
 > ⭐ **`ask`** — главный инструмент для stateless Q&A. Возвращает `chat_uuid` для последующих уточнений через `send-message` + `wait-for-response`.
 >
-> 🌊 **`stream-message`** открывает WSS-сессию и доставляет токены по мере поступления. Прогресс отправляется через MCP-нотификации (`notifications/progress` + `notifications/message`); финальный результат содержит полный текст и метаданные (`chat_uuid`, `elapsed_ms`, `chunks`).
+> 🌊 **`stream-message`** для text-scope открывает SSE-соединение на `sse.syntx.ai` и доставляет токены по мере поступления; при сбое транспорта автоматически переключается на REST-поллинг. Прогресс отправляется через MCP-нотификации (`notifications/progress` + `notifications/message`); финальный результат содержит полный текст и метаданные (`chat_uuid`, `elapsed_ms`, `chunks`).
 
 **`ask` vs `stream-message` vs низкоуровневый flow:**
 
@@ -776,7 +781,8 @@ await runTransport(factory, 'stdio', 3000);
 | `syntx.auth` | `setToken`, `getToken`, `isAuthenticated`, `validateToken`, `logout`, `sendEmailOtp`, `verifyEmailOtp`, `loginWithEmail` |
 | `syntx.ai` | `listServices`, `listModels`, `getModelInfo` |
 | `syntx.user` | `me`, `getBalance`, `getSubscription`, `getSettings` |
-| `syntx.chats` | `list`, `create`, `getMessages`, `sendMessage`, `waitForResponse`, `pollForResponse`, `streamResponse`, `generateTitle`, `delete`, `pin`, `moveToFolder`, `uploadFiles`, `getUploadedFiles`, `deleteFile`, `transcribe` |
+| `syntx.chats` | `list`, `create`, `getMessages`, `sendMessage`, `waitForResponse`, `pollForResponse`, `streamResponse`, `cancelMessage`, `generateTitle`, `delete`, `pin`, `moveToFolder`, `uploadFiles`, `getUploadedFiles`, `deleteFile`, `transcribe` |
+| `syntx.llm` | `getLimits`, `generate`, `listModels`, `getChatStream`, `waitForResponse` |
 | `syntx.design` | `generate` |
 | `syntx.audio` | `listVoiceExamples` |
 | `syntx.plans` | `list`, `getPromoBanners` |
@@ -811,6 +817,34 @@ console.log(`\n✓ ${result.text.length} chars in ${result.elapsedMs}ms (chat: $
 | `off` | Fire-and-forget: `ask` создаёт чат, отправляет промпт и сразу возвращает `chat_uuid` |
 
 Готовый пример — в [`examples/stream-example.ts`](examples/stream-example.ts).
+
+### Text-flow transport (`llm/*`)
+
+`0.4.0` подключает SDK к новым v1-эндпоинтам `llm/*` и SSE-инфраструктуре `sse.syntx.ai`, которые уже использует прод-SPA. Это основной путь для text-scope чатов:
+
+```
+MCP-клиент
+   │ ask / stream-message / send-message / wait-for-response
+   ▼
+mcp/tools/chats.ts
+   │ routeTextFlow() = scope==='text' && !legacyTextTransport
+   ▼
+LlmResource
+   │ generate → POST /api/v1/llm/generate
+   │ getChatStream → GET  /api/v1/llm/chats/{id}/stream
+   │ waitForResponse → openSse(...)  ──► https://sse.syntx.ai/...
+   │              └ on error/timeout → chats.pollForResponse() (fallback)
+```
+
+SSE — primary transport. На сбое соединения, не-2xx от `llm/chats/{id}/stream`, истечении `sseTimeoutMs` (по умолчанию 60% от `pollTimeout`) или `event: error` SDK автоматически переключается на REST-поллинг через `chats.pollForResponse` и возвращает результат как обычно. Для пользователя разницы нет.
+
+Откат на старый путь (`POST /chats/{id}/messages` + REST-поллинг, поведение `0.3.0`):
+
+```bash
+SYNTX_LEGACY_TEXT_TRANSPORT=true npx syntx-mcp
+```
+
+Полезно, если в вашей среде `sse.syntx.ai` недоступен, и нужно быстро вернуть работоспособность. Для image/video/audio скоупов флаг не действует — эти пути по-прежнему идут через `chats/{id}/messages`.
 
 Полный справочник типов — в `src/types.ts`. Внутреннее устройство слоёв — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 

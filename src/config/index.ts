@@ -28,6 +28,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
     httpToken: env[ENV_KEYS.httpToken] || undefined,
     streamMode: parseStreamMode(env[ENV_KEYS.streamMode], DEFAULT_CONFIG.streamMode),
     wsURL: env[ENV_KEYS.wsURL] || DEFAULT_CONFIG.wsURL,
+    llmSseBaseUrl: env[ENV_KEYS.llmSseBaseUrl] || DEFAULT_CONFIG.llmSseBaseUrl,
+    legacyTextTransport: parseBool(env[ENV_KEYS.legacyTextTransport], DEFAULT_CONFIG.legacyTextTransport),
+    listLlmModelsCacheMs: parseNumber(env[ENV_KEYS.listLlmModelsCacheMs], DEFAULT_CONFIG.listLlmModelsCacheMs),
   };
 }
 
@@ -44,6 +47,14 @@ function parseTransport(raw: string | undefined, fallback: TransportKind): Trans
 
 function parseStreamMode(raw: string | undefined, fallback: StreamMode): StreamMode {
   if (raw === 'auto' || raw === 'stream' || raw === 'poll' || raw === 'off') return raw;
+  return fallback;
+}
+
+function parseBool(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined || raw === '') return fallback;
+  const v = raw.trim().toLowerCase();
+  if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
+  if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false;
   return fallback;
 }
 

@@ -156,6 +156,7 @@ test('send-message forwards uploaded files as attachment message objects', async
     config: {
       defaultAI: 'chatgpt',
       defaultModel: 'gpt-5.5',
+      legacyTextTransport: true,
     },
   } as unknown as McpContext;
   const tool = chatsTools.find((candidate) => candidate.name === 'send-message');

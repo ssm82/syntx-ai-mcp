@@ -612,6 +612,12 @@ export interface WaitForResponseOptions {
    * Preferred language code for the WSS endpoint (defaults to `'en'`).
    */
   lang?: string;
+  /**
+   * Max time to wait on the SSE stream before falling back to REST polling.
+   * Defaults to `60% × timeout` so polling always gets at least 40 % of the
+   * budget. Applies to text-flow (`llm/*`) waits only.
+   */
+  sseTimeoutMs?: number;
 }
 
 /**
@@ -727,4 +733,99 @@ export interface MaintenanceStatus {
   maintenance: boolean;
   message?: string;
   [key: string]: unknown;
+}
+
+// ── llm/* namespace ──────────────────────────────────────────────────────────
+
+/**
+ * One LLM-usage quota window (6h or 7d).
+ *
+ * `expires_at === null` OR `expires_at` already in the past means the window
+ * is not currently active; the SDK normalises that shape to
+ * `{ percent_left: 100, started_at: null, expires_at: null }` so consumers
+ * never need to re-implement the rule.
+ */
+export interface LlmLimitWindow {
+  percent_left: number;
+  started_at: string | null;
+  expires_at: string | null;
+}
+
+/** Raw window shape as returned by `GET /api/v1/llm/limits`. */
+export interface RawLlmLimitWindow {
+  percent_left?: number;
+  started_at?: string | null;
+  expires_at?: string | null;
+}
+
+/**
+ * LLM-usage limits from `GET /api/v1/llm/limits`.
+ *
+ * Either window may be `null` when the user/model has no such limit.
+ */
+export interface LlmLimits {
+  window_6h: LlmLimitWindow | null;
+  window_7d: LlmLimitWindow | null;
+}
+
+/**
+ * Response from `POST /api/v1/llm/generate?ai_name=…`. The server returns
+ * a job identifier and a relative `stream_url` (joined with `llmSseBaseUrl`
+ * from {@link McpServerConfig}) plus the assistant message id.
+ */
+export interface LlmGenerateResponse {
+  job_id: string;
+  stream_url: string;
+  message_id: string;
+}
+
+/** One in-flight stream job as returned by `GET /api/v1/llm/chats/{id}/stream`. */
+export interface LlmStreamJob {
+  message_id: string;
+  stream_url: string;
+}
+
+/**
+ * Text-scope LLM model from `GET /api/v1/llm/models`. Only the text-scope
+ * subset is typed here; other scopes return raw passthrough via
+ * `[key: string]: unknown`.
+ */
+export interface LlmModel {
+  value: string;
+  label: string;
+  ai_name: string;
+  scope: 'text';
+  active: boolean;
+  description?: string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * Attachment accepted by {@link LlmResource.generate}. Mirrors the SPA
+ * upload-file shape; `objectType` defaults are derived from `mimeType` when
+ * omitted.
+ */
+export interface LlmAttachment {
+  url: string;
+  filename: string;
+  mimeType?: string;
+  objectType?: 'image' | 'video' | 'audio' | 'filetext';
+}
+
+/**
+ * Parameters accepted by {@link LlmResource.generate}. Mirrors the
+ * `POST /api/v1/llm/generate` body shape used by the prod-SPA bundle.
+ */
+export interface LlmGenerateParams {
+  prompt: string;
+  aiName: string;
+  modelType?: string;
+  chatId?: string;
+  attachments?: LlmAttachment[];
+}
+
+/** Filters accepted by {@link LlmResource.listModels}. */
+export interface LlmListModelsParams {
+  enabled_only?: boolean;
+  lang?: string;
 }
