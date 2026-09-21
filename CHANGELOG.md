@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - Unreleased
+
+### Added
+
+- New SDK resource `syntx.llm` exposing the `llm/*` text-flow namespace
+  used by the prod-SPA bundle (`1789730449`):
+  - `llm.getLimits()` → `GET /api/v1/llm/limits`. Returns `{ window_6h, window_7d }`,
+    each normalised: `null`/`expires_at === null`/past → `{percent_left:100, started_at:null, expires_at:null}`.
+  - `llm.generate({ prompt, aiName, modelType?, chatId?, attachments? })` →
+    `POST /api/v1/llm/generate?ai_name=…`.
+  - `llm.listModels({ enabled_only?, lang? })` →
+    `GET /api/v1/llm/models`.
+  - `llm.getChatStream(chatId)` →
+    `GET /api/v1/llm/chats/{chatId}/stream`.
+  - `llm.waitForResponse(chatId, { timeout?, signal?, sseTimeoutMs?, llmSseBaseUrl?, fallbackPoll? })`
+    — SSE primary via the shared `sse.syntx.ai` transport; falls back to
+    `chats.pollForResponse` on transport failure / timeout.
+- New SDK method `syntx.chats.cancelMessage(chatId, messageId)` →
+  `POST /api/v1/chats/{chatId}/messages/{messageId}/cancel`. 404 is
+  treated as success (race with completion).
+- New MCP tool `get-llm-limits` — returns the SDK `LlmLimits` payload.
+- New MCP tool `cancel-message` — wraps `syntx.chats.cancelMessage`.
+- New `BaseClient.stream(path, init?)` — opens a `Response` without
+  consuming the body. Used by the SSE transport; not retried.
+- New minimal SSE client `src/transport/sse.ts` (`openSse({ url, headers, signal, onEvent })`)
+  — WHATWG frame parser, multi-line `data:` join, `event: ping` no-op,
+  abort-aware `close()`.
+
+### Changed
+
+- **Text-scope chat tools (`ask`, `stream-message`, `send-message`,
+  `wait-for-response`) now route through the new `llm/*` text-flow** —
+  `llm.generate` for submission, `llm.waitForResponse` (SSE primary +
+  polling fallback) for delivery. Non-text scopes (`image`/`video`/`audio`)
+  continue to use the legacy `chats/{id}/messages` path.
+- `BaseClient` adds `stream()` — the only HTTP method that does not
+  consume the response body. All other methods are unchanged.
+- New config keys (all with env-var equivalents):
+  `llmSseBaseUrl` (default `https://sse.syntx.ai`),
+  `legacyTextTransport` (default `false`),
+  `listLlmModelsCacheMs` (default `60000`).
+  Set `SYNTX_LEGACY_TEXT_TRANSPORT=true` to restore the v0.3.0 behaviour.
+
 ## [0.3.0] - Unreleased
 
 ### Changed

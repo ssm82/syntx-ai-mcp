@@ -309,6 +309,7 @@ async function callWaitForResponse(
     defaultAI: 'chatgpt',
     defaultModel: undefined,
     streamMode: 'poll',
+    legacyTextTransport: true,
   } as Parameters<typeof createMcpContext>[0]);
   (ctx.syntx as unknown as { chats: ChatsResource }).chats = resourceWith(client);
   const tool = chatsTools.find((t) => t.name === 'wait-for-response');

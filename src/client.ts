@@ -214,6 +214,55 @@ export class BaseClient {
     }, true);
   }
 
+  /**
+   * Open a streaming response without consuming its body.
+   *
+   * Returns the raw {@link Response} so the caller can read the body as a
+   * `ReadableStream<Uint8Array>` (e.g. for Server-Sent Events). The
+   * response body is intentionally NOT consumed — `handleResponse` would
+   * buffer it and break the stream.
+   *
+   * Goes through the same timeout/abort/error plumbing as `get`, but skips
+   * the retry layer (an open stream cannot be replayed). Status errors are
+   * surfaced as `Response` objects so the caller can inspect `ok`; abort is
+   * surfaced as `SyntxAPIError(408)` like the other methods.
+   *
+   * `init.headers` are merged on top of {@link baseHeaders}, so callers can
+   * override `Accept` (e.g. to `text/event-stream`) without rebuilding the
+   * auth headers.
+   */
+  async stream(
+    path: string,
+    init?: { headers?: Record<string, string>; signal?: AbortSignal; timeoutMs?: number },
+  ): Promise<Response> {
+    const headers = { ...this.baseHeaders(), ...(init?.headers ?? {}) };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), init?.timeoutMs ?? this.timeout);
+
+    const onCallerAbort = () => controller.abort();
+    if (init?.signal) {
+      if (init.signal.aborted) controller.abort();
+      else init.signal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+
+    try {
+      const response = await fetch(this.baseURL + path, {
+        ...(init?.signal ? { signal: controller.signal } : {}),
+        headers,
+      });
+      clearTimeout(timer);
+      init?.signal?.removeEventListener('abort', onCallerAbort);
+      return response;
+    } catch (error) {
+      clearTimeout(timer);
+      init?.signal?.removeEventListener('abort', onCallerAbort);
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new SyntxAPIError('Request timeout', 408);
+      }
+      throw error;
+    }
+  }
+
   async post<T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
     return this.requestWithRetry<T>(this.buildUrl(path, params), {
       method: 'POST',

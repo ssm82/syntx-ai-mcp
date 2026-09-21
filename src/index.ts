@@ -33,6 +33,17 @@ export { DesignResource, type GenerateDesignParams } from './resources/design';
 export { AudioResource, type ListVoiceExamplesParams, type GenerateAudioParams } from './resources/audio';
 export { VideoResource, type GenerateVideoParams } from './resources/video';
 export { AppResource } from './resources/app';
+export { LlmResource } from './resources/llm';
+export type {
+  LlmLimits,
+  LlmLimitWindow,
+  LlmGenerateResponse,
+  LlmStreamJob,
+  LlmModel,
+  LlmGenerateParams,
+  LlmAttachment,
+  LlmListModelsParams,
+} from './types';
 
 // ── MCP server layer ────────────────────────────────────────────────────────
 export { createMcpServer } from './mcp/server';
