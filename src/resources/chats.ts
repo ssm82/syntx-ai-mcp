@@ -195,19 +195,38 @@ export class ChatsResource {
   }
 
   /**
-   * Get the latest `created_at` timestamp from a chat's messages.
-   * Useful as a boundary for waitForResponse.
+   * Get the largest numeric message id from the chat, skipping assistant
+   * (`author_id === -1`) messages. Returned as a string for backward
+   * compatibility with the previous timestamp-typed boundary; the polling
+   * filter compares it as a number.
+   *
+   * Why ids and not `created_at`: the live API (observed 2026-09-21) sometimes
+   * records the assistant reply placeholder **before** the user prompt —
+   * `created_at(assistant) < created_at(user)` by ~10–15 ms — so a
+   * `max(created_at)` boundary silently misses the reply. Message ids are
+   * monotonically assigned by the server at request intake, so the latest
+   * non-assistant id is always strictly less than the next assistant id we
+   * are waiting for.
+   *
+   * Returns `'0'` for empty chats / on API error so the polling filter
+   * falls through to "any assistant message is new".
    */
   async getLatestBoundary(chatId: string): Promise<string> {
     try {
       const { messages } = await this.getMessages(chatId, { page_size: 50 });
-      let max = '1970-01-01T00:00:00.000Z';
+      let maxId = 0;
       for (const m of messages) {
-        if (m.created_at && m.created_at > max) max = m.created_at;
+        if (!m || !m.id) continue;
+        // Skip assistant messages (author_id === -1). They are the thing we
+        // want to *find*, not the boundary.
+        if (m.author_id === -1) continue;
+        const n = Number(m.id);
+        if (!Number.isFinite(n)) continue;
+        if (n > maxId) maxId = n;
       }
-      return max;
+      return String(maxId);
     } catch {
-      return '1970-01-01T00:00:00.000Z';
+      return '0';
     }
   }
 
@@ -395,6 +414,13 @@ export class ChatsResource {
     if (!boundary) {
       boundary = await this.getLatestBoundary(chatId);
     }
+    // Coerce boundary to a numeric id once. The legacy callers that passed
+    // a timestamp here (pre-fix) will fall through to "all assistant
+    // messages count" — the message-id comparison below will treat them as
+    // non-numeric and skip the strict filter, restoring the old `>=`-on-
+    // timestamp behaviour for that path.
+    const boundaryId = Number(boundary);
+    const hasNumericBoundary = Number.isFinite(boundaryId) && boundaryId > 0;
 
     // Wait for any previous in-progress request to finish.
     // The endpoint returns an array of active generations; an empty array
@@ -454,11 +480,25 @@ export class ChatsResource {
           throw new Error(`getMessages returned invalid messages: ${typeof messages}`);
         }
 
-        // NOTE: use `>=` (not `>`) because the API assigns the same `created_at`
-        // to the user prompt and the assistant reply within a single turn.
-        const newAssistantMsgs = messages.filter(
-          m => m && m.author_id === -1 && m.created_at && m.created_at >= boundary
-        );
+        // Filter on numeric message id (the server-assigned, monotonically
+        // increasing identifier) rather than `created_at`. The live API
+        // (observed 2026-09-21) sometimes records the assistant reply
+        // placeholder BEFORE the user prompt — `created_at` order is
+        // unreliable but id order is not.
+        //
+        // Fallbacks (preserved for callers that pass an old-style timestamp
+        // boundary):
+        //   - non-numeric boundary  → treat as legacy timestamp, use `>`
+        //   - no boundary (zero/NaN) → accept any assistant message
+        const newAssistantMsgs = messages.filter((m) => {
+          if (!m || m.author_id !== -1) return false;
+          if (hasNumericBoundary) {
+            const id = Number(m.id);
+            return Number.isFinite(id) && id > boundaryId;
+          }
+          if (boundary && m.created_at) return m.created_at > boundary;
+          return true;
+        });
         const assistant = newAssistantMsgs[newAssistantMsgs.length - 1];
         if (!assistant) {
           consecutiveErrors = 0;

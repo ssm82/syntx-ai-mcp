@@ -754,3 +754,189 @@ test('deleteFile sends {url} when called with a {url} object', async () => {
   assert.equal(calls[0].path, '/api/v1/files/delete');
   assert.deepEqual(calls[0].body, { url: 'https://r2.syntx.ai/uploaded/x.png' });
 });
+
+// ── pollForResponse: boundary ordering (regression) ─────────────────────────
+//
+// Live API (2026-09-21) creates the assistant reply placeholder BEFORE the
+// user prompt on some servers — i.e. assistant.created_at < user.created_at
+// by ~10–15 ms. The previous `max(created_at)` boundary plus `>=` filter
+// silently missed the reply in that case. The fix: `getLatestBoundary` now
+// returns the largest numeric id of non-assistant messages, and the polling
+// filter compares on that id (server-assigned, monotonically increasing per
+// chat). See src/resources/chats.ts for the full rationale.
+
+test('getLatestBoundary returns the largest numeric id of non-assistant messages', async () => {
+  const userTs = '2026-09-21T11:07:46.845902Z';
+  const assistantTs = '2026-09-21T11:07:46.845889Z'; // earlier than user by 13ms — the live-API case
+  const client = fakeClient({
+    messagePages: [
+      [
+        // assistant first in array order, with id '326529905'
+        {
+          id: '326529905',
+          chat_id: CHAT_ID,
+          author_id: -1,
+          created_at: assistantTs,
+          updated_at: assistantTs,
+          is_favorite: false,
+          message_object: [
+            {
+              id: 1,
+              message_id: 1,
+              object_type: 'text',
+              object_url: null,
+              object_text: 'hi',
+              completed: true,
+              created_at: assistantTs,
+              updated_at: assistantTs,
+              model_type: 'gpt-5.6-luna',
+              metadata: null,
+            },
+          ],
+        },
+        // user prompt second, with id '326529901' — but LATER id would be
+        // even better; we want the max
+        {
+          id: '326529910',
+          chat_id: CHAT_ID,
+          author_id: 7339864216,
+          created_at: userTs,
+          updated_at: userTs,
+          is_favorite: false,
+          message_object: [
+            {
+              id: 2,
+              message_id: 2,
+              object_type: 'text',
+              object_url: null,
+              object_text: 'user prompt',
+              completed: true,
+              created_at: userTs,
+              updated_at: userTs,
+              model_type: 'gpt-5.6-luna',
+              metadata: null,
+            },
+          ],
+        },
+      ],
+    ],
+  });
+  const boundary = await resourceWith(client).getLatestBoundary(CHAT_ID);
+  assert.equal(boundary, '326529910', 'boundary must be the max user/system id, not the assistant reply');
+});
+
+test('getLatestBoundary returns 0 when chat has no non-assistant messages', async () => {
+  const client = fakeClient({
+    messagePages: [[assistantMsg('only assistant', true)]],
+  });
+  const boundary = await resourceWith(client).getLatestBoundary(CHAT_ID);
+  assert.equal(boundary, '0');
+});
+
+test('pollForResponse resolves when assistant.id > user.id regardless of created_at order (regression)', async () => {
+  // The exact live-API failure mode: assistant created_at is EARLIER than the
+  // user prompt by 13 ms but the assistant id is HIGHER. The previous
+  // `>=`-on-`created_at` filter against `max(created_at)` boundary silently
+  // missed this reply; the new id-based filter resolves on the first poll.
+  const userTs = '2026-09-21T11:07:46.845902Z';
+  const assistantTs = '2026-09-21T11:07:46.845889Z'; // 13 ms earlier — the bug case
+  const client = fakeClient({
+    messagePages: [
+      [
+        // assistant has HIGHER id (326529905) but EARLIER created_at
+        {
+          id: '326529905',
+          chat_id: CHAT_ID,
+          author_id: -1,
+          created_at: assistantTs,
+          updated_at: assistantTs,
+          is_favorite: false,
+          message_object: [
+            {
+              id: 1,
+              message_id: 1,
+              object_type: 'text',
+              object_url: null,
+              object_text: 'pong',
+              completed: true,
+              created_at: assistantTs,
+              updated_at: assistantTs,
+              model_type: 'gpt-5.6-luna',
+              metadata: null,
+            },
+          ],
+        },
+        // user prompt has LOWER id (326529901) but LATER created_at
+        {
+          id: '326529901',
+          chat_id: CHAT_ID,
+          author_id: 7339864216,
+          created_at: userTs,
+          updated_at: userTs,
+          is_favorite: false,
+          message_object: [
+            {
+              id: 2,
+              message_id: 2,
+              object_type: 'text',
+              object_url: null,
+              object_text: 'ping',
+              completed: true,
+              created_at: userTs,
+              updated_at: userTs,
+              model_type: 'gpt-5.6-luna',
+              metadata: null,
+            },
+          ],
+        },
+      ],
+    ],
+  });
+  // Boundary = max non-assistant id = user prompt id.
+  const result = await resourceWith(client).pollForResponse(CHAT_ID, {
+    timeout: 3000,
+    pollInterval: 100,
+    boundary: '326529901',
+  });
+  assert.equal(result.text, 'pong');
+});
+
+test('pollForResponse still resolves when assistant.id == user.id (legacy boundary = 0 case)', async () => {
+  // Regression guard: when the boundary defaults to '0' (no prior messages,
+  // or empty chat), every assistant message must be accepted.
+  const sameTs = '2026-09-21T11:07:46.845902Z';
+  const client = fakeClient({
+    messagePages: [
+      [
+        {
+          id: '1',
+          chat_id: CHAT_ID,
+          author_id: -1,
+          created_at: sameTs,
+          updated_at: sameTs,
+          is_favorite: false,
+          message_object: [
+            {
+              id: 1,
+              message_id: 1,
+              object_type: 'text',
+              object_url: null,
+              object_text: 'echo',
+              completed: true,
+              created_at: sameTs,
+              updated_at: sameTs,
+              model_type: 'gpt-5.6-luna',
+              metadata: null,
+            },
+          ],
+        },
+      ],
+    ],
+  });
+  const result = await resourceWith(client).pollForResponse(CHAT_ID, {
+    timeout: 3000,
+    pollInterval: 100,
+    boundary: '0',
+  });
+  assert.equal(result.text, 'echo');
+});
