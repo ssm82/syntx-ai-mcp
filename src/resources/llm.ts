@@ -57,13 +57,19 @@ export class LlmResource {
   }
 
   async generate(params: LlmGenerateParams): Promise<LlmGenerateResponse> {
-    // Live server (validated 2026-09-21) expects:
-    //   body: { text: string, model: string } (no objects/chat_id/model_type)
+    // Live SPA capture (2026-09-21):
+    //   body: { chat_uuid?, text, model, thinking?, plan?, deep_research?, tools? }
     //   query: ai_name=…
     const model = params.modelType ?? 'gpt-5.6-luna';
+    const body: Record<string, unknown> = { text: params.prompt, model };
+    if (params.chatUuid) body.chat_uuid = params.chatUuid;
+    if (params.thinking !== undefined) body.thinking = params.thinking;
+    if (params.plan !== undefined) body.plan = params.plan;
+    if (params.deepResearch !== undefined) body.deep_research = params.deepResearch;
+    if (params.tools) body.tools = params.tools;
     return this.client.post<LlmGenerateResponse>(
       '/api/v1/llm/generate',
-      { text: params.prompt, model },
+      body,
       { ai_name: params.aiName },
     );
   }

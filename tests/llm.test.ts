@@ -119,6 +119,49 @@ test('LlmResource.generate falls back to default model when modelType is omitted
   restore();
 });
 
+test('LlmResource.generate binds the message to a chat via chat_uuid', async () => {
+  const { calls, restore } = installFetchMock([
+    { status: 200, body: { job_id: 'j', stream_url: '/s', message_id: 'm' } },
+  ]);
+
+  await new LlmResource(makeClient()).generate({
+    prompt: 'ping',
+    aiName: 'gemini',
+    modelType: 'gemini-3.8-flash',
+    chatUuid: '7d6d3bd2-b17e-4785-bb23-e12bad7b939d',
+  });
+
+  const body = JSON.parse(readText(calls[0]));
+  assert.equal(body.chat_uuid, '7d6d3bd2-b17e-4785-bb23-e12bad7b939d');
+  assert.equal(body.text, 'ping');
+  assert.equal(body.model, 'gemini-3.8-flash');
+  assert.equal(calls[0].url, 'https://api.syntx.ai/api/v1/llm/generate?ai_name=gemini');
+  restore();
+});
+
+test('LlmResource.generate forwards thinking / plan / deep_research / tools when set', async () => {
+  const { calls, restore } = installFetchMock([
+    { status: 200, body: { job_id: 'j', stream_url: '/s', message_id: 'm' } },
+  ]);
+
+  await new LlmResource(makeClient()).generate({
+    prompt: 'go',
+    aiName: 'gemini',
+    modelType: 'gemini-3.8-flash',
+    thinking: false,
+    plan: false,
+    deepResearch: false,
+    tools: ['search', 'code', 'shell', 'files', 'charts'],
+  });
+
+  const body = JSON.parse(readText(calls[0]));
+  assert.equal(body.thinking, false);
+  assert.equal(body.plan, false);
+  assert.equal(body.deep_research, false);
+  assert.deepEqual(body.tools, ['search', 'code', 'shell', 'files', 'charts']);
+  restore();
+});
+
 test('LlmResource.listModels unwraps the { models } envelope', async () => {
   const { calls, restore } = installFetchMock([
     {

@@ -802,20 +802,33 @@ export interface LlmModel {
 
 /**
  * Parameters accepted by {@link LlmResource.generate}. Mirrors the
- * `POST /api/v1/llm/generate` body shape validated against the live syntx.ai
- * API on 2026-09-21:
+ * `POST /api/v1/llm/generate` body shape captured from live SPA traffic
+ * (syntx.ai browser DevTools, 2026-09-21):
  *
- *   body: { text: string, model: string }
+ *   body: {
+ *     chat_uuid?: string,
+ *     text: string,
+ *     model: string,
+ *     thinking?: boolean,
+ *     plan?: boolean,
+ *     deep_research?: boolean,
+ *     tools?: string[],
+ *   }
  *   query: ai_name=…
  *
- * Earlier SPA bundles sent `{ objects, chat_id, model_type }`; that contract
- * now returns 422 on the live server. If the API grows back the richer shape
- * (e.g. attachments), add them here and to `LlmResource.generate`.
+ * Note: the chat-binding field is `chat_uuid`, NOT `chat_id`. Sending
+ * `chat_id` returns 422 from the server. Earlier SPA bundles that sent
+ * `{ objects, chat_id, model_type }` are no longer compatible.
  */
 export interface LlmGenerateParams {
   prompt: string;
   aiName: string;
   modelType?: string;
+  chatUuid?: string;
+  thinking?: boolean;
+  plan?: boolean;
+  deepResearch?: boolean;
+  tools?: string[];
 }
 
 /** Filters accepted by {@link LlmResource.listModels}. */
