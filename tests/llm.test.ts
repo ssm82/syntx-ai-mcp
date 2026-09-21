@@ -77,7 +77,7 @@ function makeClient(token: string | undefined = 'tok') {
   } as unknown as import('../src/client').BaseClient;
 }
 
-test('LlmResource.generate posts objects + ai_name query and returns job metadata', async () => {
+test('LlmResource.generate posts {text, model} + ai_name query and returns job metadata', async () => {
   const { calls, restore } = installFetchMock([
     {
       status: 200,
@@ -89,7 +89,6 @@ test('LlmResource.generate posts objects + ai_name query and returns job metadat
     prompt: 'hello',
     aiName: 'chatgpt',
     modelType: 'gpt-5',
-    chatId: 'chat-1',
   });
 
   assert.equal(result.job_id, 'j1');
@@ -97,16 +96,13 @@ test('LlmResource.generate posts objects + ai_name query and returns job metadat
   assert.equal(calls[0].url, 'https://api.syntx.ai/api/v1/llm/generate?ai_name=chatgpt');
   assert.equal(calls[0].init.method, 'POST');
   assert.deepEqual(JSON.parse(readText(calls[0])), {
-    objects: [
-      { object_type: 'text', object_url: null, object_text: 'hello', model_type: 'gpt-5' },
-    ],
-    chat_id: 'chat-1',
-    model_type: 'gpt-5',
+    text: 'hello',
+    model: 'gpt-5',
   });
   restore();
 });
 
-test('LlmResource.generate maps attachments to objects with the right object_type', async () => {
+test('LlmResource.generate falls back to default model when modelType is omitted', async () => {
   const { calls, restore } = installFetchMock([
     { status: 200, body: { job_id: 'j', stream_url: '/s', message_id: 'm' } },
   ]);
@@ -114,19 +110,11 @@ test('LlmResource.generate maps attachments to objects with the right object_typ
   await new LlmResource(makeClient()).generate({
     prompt: 'look',
     aiName: 'claude',
-    attachments: [
-      { url: 'https://r2/photo.jpg', filename: 'photo.jpg', mimeType: 'image/jpeg' },
-      { url: 'https://r2/clip.mp4', filename: 'clip.mp4', objectType: 'video' },
-      { url: 'https://r2/notes.txt', filename: 'notes.txt', mimeType: 'text/plain' },
-    ],
   });
 
   const body = JSON.parse(readText(calls[0]));
-  assert.equal(body.objects[0].object_type, 'text');
-  assert.equal(body.objects[1].object_type, 'image');
-  assert.equal(body.objects[1].object_url, 'https://r2/photo.jpg');
-  assert.equal(body.objects[2].object_type, 'video');
-  assert.equal(body.objects[3].object_type, 'filetext');
+  assert.equal(body.text, 'look');
+  assert.equal(body.model, 'gpt-5.6-luna');
   assert.equal(calls[0].url, 'https://api.syntx.ai/api/v1/llm/generate?ai_name=claude');
   restore();
 });

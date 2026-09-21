@@ -143,17 +143,21 @@ export const chatsTools: SyntxTool[] = [
 
         const flow = routeTextFlow(ctx, { scope: 'text' });
         if (flow) {
+          // The live `llm/generate` body is `{ text, model }`; attachments are
+          // not yet accepted (server returned 422). Until the contract grows,
+          // ignore them on the text-flow path and warn the caller.
+          if (attachments.length > 0) {
+            return toMcpError(
+              new Error(
+                'Attachments are not supported by `llm/generate` on the live server (use `chats/{id}/messages` via the legacy text transport for attachments).',
+              ),
+              'send-message',
+            );
+          }
           await ctx.syntx.llm.generate({
             prompt: String(args.prompt),
             aiName,
             modelType,
-            chatId,
-            attachments: attachments.map((a) => ({
-              url: a.url,
-              filename: a.filename,
-              ...(a.mime_type ? { mimeType: a.mime_type } : {}),
-              ...(a.type ? { objectType: a.type as 'image' | 'video' | 'audio' | 'filetext' } : {}),
-            })),
           });
           return textResult(
             `Message sent to chat ${chatId}. Use "wait-for-response" or "get-messages" to read the reply.`,
@@ -300,7 +304,6 @@ export const chatsTools: SyntxTool[] = [
               prompt,
               aiName,
               modelType,
-              chatId: uuid,
             });
           } else {
             await ctx.syntx.chats.sendMessage(uuid, aiName, [
@@ -324,7 +327,7 @@ export const chatsTools: SyntxTool[] = [
             title: (args.title as string | undefined) ?? prompt.slice(0, 60),
             scope,
           });
-          await ctx.syntx.llm.generate({ prompt, aiName, modelType, chatId: uuid });
+          await ctx.syntx.llm.generate({ prompt, aiName, modelType });
           const completed = await flow.waitForResponse(uuid, {
             timeout,
             signal: extra?.signal,
@@ -399,7 +402,7 @@ export const chatsTools: SyntxTool[] = [
             scope,
             ...(modelType ? { model: modelType } : {}),
           });
-          await ctx.syntx.llm.generate({ prompt, aiName, modelType, chatId: uuid });
+          await ctx.syntx.llm.generate({ prompt, aiName, modelType });
           let chunkCount = 0;
           const completed = await flow.waitForResponse(uuid, {
             timeout,
@@ -513,10 +516,16 @@ export const chatsTools: SyntxTool[] = [
       required: ['chat_id', 'message_id'],
       additionalProperties: false,
     },
-    handler: wrapSdk<{ chat_id: string; message_id: string }, void>(
-      'cancel-message',
-      async (args, ctx) => ctx.syntx.chats.cancelMessage(args.chat_id, args.message_id),
-    ),
+    handler: async (args, ctx) => {
+      try {
+        const chatId = String(args.chat_id);
+        const messageId = String(args.message_id);
+        await ctx.syntx.chats.cancelMessage(chatId, messageId);
+        return textResult(`Cancelled message ${messageId} in chat ${chatId}.`);
+      } catch (err) {
+        return toMcpError(err, 'cancel-message');
+      }
+    },
   },
 ];
 

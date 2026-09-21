@@ -12,7 +12,6 @@ import type {
   LlmStreamJob,
   CompletedMessage,
   Message,
-  MessageObject,
 } from '../types';
 
 interface WaitForResponseOptions {
@@ -58,36 +57,13 @@ export class LlmResource {
   }
 
   async generate(params: LlmGenerateParams): Promise<LlmGenerateResponse> {
-    const objects: MessageObject[] = [
-      {
-        object_type: 'text',
-        object_url: null,
-        object_text: params.prompt,
-        ...(params.modelType ? { model_type: params.modelType } : {}),
-      },
-      ...(params.attachments ?? []).map((att) => {
-        const mimeCategory = att.mimeType?.split('/', 1)[0]?.toLowerCase();
-        const category = att.objectType ?? mimeCategory;
-        const objectType =
-          category === 'image' || category === 'video' || category === 'audio'
-            ? category
-            : 'filetext';
-        return {
-          object_type: objectType,
-          object_url: att.url,
-          object_text: att.filename,
-          ...(params.modelType ? { model_type: params.modelType } : {}),
-        };
-      }),
-    ];
-
-    const body: Record<string, unknown> = { objects };
-    if (params.chatId) body.chat_id = params.chatId;
-    if (params.modelType) body.model_type = params.modelType;
-
+    // Live server (validated 2026-09-21) expects:
+    //   body: { text: string, model: string } (no objects/chat_id/model_type)
+    //   query: ai_name=…
+    const model = params.modelType ?? 'gpt-5.6-luna';
     return this.client.post<LlmGenerateResponse>(
       '/api/v1/llm/generate',
-      body,
+      { text: params.prompt, model },
       { ai_name: params.aiName },
     );
   }

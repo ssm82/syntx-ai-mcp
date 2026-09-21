@@ -801,27 +801,21 @@ export interface LlmModel {
 }
 
 /**
- * Attachment accepted by {@link LlmResource.generate}. Mirrors the SPA
- * upload-file shape; `objectType` defaults are derived from `mimeType` when
- * omitted.
- */
-export interface LlmAttachment {
-  url: string;
-  filename: string;
-  mimeType?: string;
-  objectType?: 'image' | 'video' | 'audio' | 'filetext';
-}
-
-/**
  * Parameters accepted by {@link LlmResource.generate}. Mirrors the
- * `POST /api/v1/llm/generate` body shape used by the prod-SPA bundle.
+ * `POST /api/v1/llm/generate` body shape validated against the live syntx.ai
+ * API on 2026-09-21:
+ *
+ *   body: { text: string, model: string }
+ *   query: ai_name=…
+ *
+ * Earlier SPA bundles sent `{ objects, chat_id, model_type }`; that contract
+ * now returns 422 on the live server. If the API grows back the richer shape
+ * (e.g. attachments), add them here and to `LlmResource.generate`.
  */
 export interface LlmGenerateParams {
   prompt: string;
   aiName: string;
   modelType?: string;
-  chatId?: string;
-  attachments?: LlmAttachment[];
 }
 
 /** Filters accepted by {@link LlmResource.listModels}. */

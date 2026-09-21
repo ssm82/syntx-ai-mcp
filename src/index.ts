@@ -41,7 +41,6 @@ export type {
   LlmStreamJob,
   LlmModel,
   LlmGenerateParams,
-  LlmAttachment,
   LlmListModelsParams,
 } from './types';
 
