@@ -141,28 +141,16 @@ export const chatsTools: SyntxTool[] = [
         }> | undefined) ?? [];
         const chatId = String(args.chat_id);
 
-        const flow = routeTextFlow(ctx, { scope: 'text' });
-        if (flow) {
-          // The live `llm/generate` body is `{ text, model }`; attachments are
-          // not yet accepted (server returned 422). Until the contract grows,
-          // ignore them on the text-flow path and warn the caller.
-          if (attachments.length > 0) {
-            return toMcpError(
-              new Error(
-                'Attachments are not supported by `llm/generate` on the live server (use `chats/{id}/messages` via the legacy text transport for attachments).',
-              ),
-              'send-message',
-            );
-          }
-          await ctx.syntx.llm.generate({
-            prompt: String(args.prompt),
-            aiName,
-            modelType,
-          });
-          return textResult(
-            `Message sent to chat ${chatId}. Use "wait-for-response" or "get-messages" to read the reply.`,
-          );
-        }
+        // `send-message` always goes through `chats/{id}/messages` — that
+        // endpoint is what actually persists the message in the chat.
+        // `llm/generate` is for one-shot generation without a chat context and
+        // creates a floating chat, so it is NOT used here. The text-flow
+        // distinction only affects the WAIT phase (SSE via
+        // `llm.getChatStream` vs pure REST polling) — see
+        // `wait-for-response`. The presence of `routeTextFlow` here is a
+        // no-op marker so the legacy-vs-text transport remains explicit; the
+        // underlying send call is the same.
+        routeTextFlow(ctx, { scope: 'text' });
 
         const objects = [
           {
@@ -294,40 +282,42 @@ export const chatsTools: SyntxTool[] = [
         const flow = routeTextFlow(ctx, { scope });
 
         // `off` — fire-and-forget; create chat + send prompt, return immediately.
+        // Always goes through `chats/{id}/messages` regardless of flow —
+        // `llm/generate` is for one-shot generation and does not anchor the
+        // message to the chat we just created.
         if (mode === 'off') {
           const { uuid } = await ctx.syntx.chats.create({
             title: (args.title as string | undefined) ?? prompt.slice(0, 60),
             scope,
           });
-          if (flow) {
-            await ctx.syntx.llm.generate({
-              prompt,
-              aiName,
-              modelType,
-            });
-          } else {
-            await ctx.syntx.chats.sendMessage(uuid, aiName, [
-              {
-                object_type: 'text',
-                object_url: null,
-                object_text: prompt,
-                model_type: modelType,
-              },
-            ]);
-          }
+          await ctx.syntx.chats.sendMessage(uuid, aiName, [
+            {
+              object_type: 'text',
+              object_url: null,
+              object_text: prompt,
+              ...(modelType ? { model_type: modelType } : {}),
+            },
+          ]);
           return textResult(
             `chat_uuid: ${uuid}\n\nMessage sent. Use "wait-for-response" or "stream-message" to read the reply.`,
           );
         }
 
-        // Text flow: create + llm.generate + llm.waitForResponse (SSE primary,
-        // polling fallback). No WSS, no `pollAsk` indirection.
+        // Text flow: create + chats.sendMessage + llm.waitForResponse
+        // (SSE primary via llm.getChatStream, polling fallback).
         if (flow) {
           const { uuid } = await ctx.syntx.chats.create({
             title: (args.title as string | undefined) ?? prompt.slice(0, 60),
             scope,
           });
-          await ctx.syntx.llm.generate({ prompt, aiName, modelType });
+          await ctx.syntx.chats.sendMessage(uuid, aiName, [
+            {
+              object_type: 'text',
+              object_url: null,
+              object_text: prompt,
+              ...(modelType ? { model_type: modelType } : {}),
+            },
+          ]);
           const completed = await flow.waitForResponse(uuid, {
             timeout,
             signal: extra?.signal,
@@ -402,7 +392,14 @@ export const chatsTools: SyntxTool[] = [
             scope,
             ...(modelType ? { model: modelType } : {}),
           });
-          await ctx.syntx.llm.generate({ prompt, aiName, modelType });
+          await ctx.syntx.chats.sendMessage(uuid, aiName, [
+            {
+              object_type: 'text',
+              object_url: null,
+              object_text: prompt,
+              ...(modelType ? { model_type: modelType } : {}),
+            },
+          ]);
           let chunkCount = 0;
           const completed = await flow.waitForResponse(uuid, {
             timeout,
