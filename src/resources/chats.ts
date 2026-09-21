@@ -363,6 +363,14 @@ export class ChatsResource {
     const signal = options?.signal;
     const onProgress = options?.onProgress;
 
+    // Opt-in diagnostics (SYNTX_DEBUG=1) — written to stderr so the MCP
+    // stdio channel stays clean. Takes a thunk so disabled mode skips
+    // string building in the polling loop entirely.
+    const dbg = process.env.SYNTX_DEBUG
+      ? (msg: () => string) => { try { process.stderr.write(`[poll-debug chat=${chatId}] ${msg()}\n`); } catch { /* best-effort */ } }
+      : (_msg: () => string) => {};
+    dbg(() => `start timeout=${timeout}ms pollInterval=${maxPollInterval}ms pageSize=${pageSize}`);
+
     const throwIfAborted = () => {
       if (signal?.aborted) {
         throw new SyntxAbortError(`Wait cancelled in chat ${chatId}`);
@@ -414,6 +422,7 @@ export class ChatsResource {
     if (!boundary) {
       boundary = await this.getLatestBoundary(chatId);
     }
+    dbg(() => `boundary=${JSON.stringify(boundary)} hasNumericBoundary=${typeof boundary === 'string' && Number.isFinite(Number(boundary)) && Number(boundary) > 0}`);
     // Coerce boundary to a numeric id once. The legacy callers that passed
     // a timestamp here (pre-fix) will fall through to "all assistant
     // messages count" — the message-id comparison below will treat them as
@@ -458,9 +467,11 @@ export class ChatsResource {
     }
 
     let consecutiveErrors = 0;
+    let iter = 0;
 
     while (true) {
       throwIfAborted();
+      iter++;
       const elapsed = Date.now() - start;
       if (elapsed > timeout) {
         throw new SyntxTimeoutError(
@@ -501,9 +512,11 @@ export class ChatsResource {
         });
         const assistant = newAssistantMsgs[newAssistantMsgs.length - 1];
         if (!assistant) {
+          dbg(() => `iter=${iter} no assistant match: got=${messages.length} msgs, candidate authors=${messages.map(m => `${m.id}:${m.author_id}`).slice(0, 5).join(',')}`);
           consecutiveErrors = 0;
           continue;
         }
+        dbg(() => `iter=${iter} found assistant id=${assistant.id} created_at=${assistant.created_at}`);
 
         const projection = collectCompletedObjects(assistant);
         if (projection.ready) {

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { LlmResource } from '../src/resources/llm';
 import { ChatsResource } from '../src/resources/chats';
-import { SyntxAPIError } from '../src/errors';
+import { SyntxAPIError, SyntxTimeoutError } from '../src/errors';
 import type { CompletedMessage } from '../src/types';
 
 interface CapturedCall {
@@ -102,12 +102,48 @@ test('waitForResponse completes when the SSE stream emits complete', async () =>
     },
   );
 
-  assert.equal(result.text, 'Hello,\n world!');
+  assert.equal(result.text, 'Hello, world!');
   assert.equal(calls[0].url, 'https://api.syntx.ai/api/v1/llm/chats/chat-1/stream');
   assert.equal(calls[1].url, 'https://sse.syntx.ai/v1/jobs/j1/stream');
   assert.equal((calls[1].init.headers as Record<string, string>).Accept, 'text/event-stream');
   assert.equal(calls.length, 2, 'SSE success must not trigger polling fallback');
 
+  restore();
+});
+
+test('waitForResponse reconstructs reply text from live SSE delta contract ([DONE] terminator, usage_final skipped)', async () => {
+  // Exact frame shape captured from sse.syntx.ai on 2026-09-21: no `event:`
+  // lines, JSON content deltas, a usage_final stats frame, and a bare
+  // `data: [DONE]` terminator inside a default message event.
+  const frames = [
+    'id: 1-0\ndata: {"type": "content", "content": "STREAM", "job_id": "j"}\n\n',
+    'id: 1-1\ndata: {"type": "content", "content": " SH", "job_id": "j"}\n\n',
+    'id: 1-2\ndata: {"type": "content", "content": "APE", "job_id": "j"}\n\n',
+    'id: 1-3\ndata: {"type": "content", "content": " TEST ", "job_id": "j"}\n\n',
+    'id: 1-4\ndata: {"type": "content", "content": "123", "job_id": "j"}\n\n',
+    'id: 1-5\ndata: {"type": "usage_final", "model": "gpt-5.6-luna", "tokens_output": 10, "job_id": "j"}\n\n',
+    'id: 1-6\ndata: [DONE]\n\n',
+  ].join('');
+  const { restore } = installFetchMock((call) => {
+    if (call.url.startsWith('https://api.syntx.ai/api/v1/llm/chats/')) {
+      return new Response(
+        JSON.stringify({ jobs: [{ message_id: 'm1', stream_url: '/v1/jobs/j1/stream' }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return streamResponse([frames]);
+  });
+
+  const llm = new LlmResource(makeLlmClient());
+  const result = await llm.waitForResponse('chat-live-sse', {
+    timeout: 5000,
+    llmSseBaseUrl: 'https://sse.syntx.ai',
+    fallbackPoll: async () => {
+      throw new Error('unexpected polling fallback for live-contract stream');
+    },
+  });
+
+  assert.equal(result.text, 'STREAM SHAPE TEST 123');
   restore();
 });
 
@@ -198,6 +234,105 @@ test('waitForResponse falls back to polling when the SSE stream times out', asyn
   });
 
   assert.equal(result.text, 'poll-after-timeout');
+  restore();
+});
+
+test('waitForResponse passes the REMAINING budget to fallbackPoll, not the full timeout', async () => {
+  // Regression (2026-09-21): the fallback used to receive the original
+  // `opts.timeout` while the elapsed SSE time was lost, so the MCP wrapper
+  // polled for a full extra `timeout` — total wall time up to 1.6x budget.
+  const { restore } = installFetchMock((call) => {
+    if (call.url.startsWith('https://api.syntx.ai/api/v1/llm/chats/')) {
+      return new Response(
+        JSON.stringify({ jobs: [{ message_id: 'm1', stream_url: '/v1/jobs/j1/stream' }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (call.url.startsWith('https://sse.syntx.ai/')) {
+      const body = new ReadableStream<Uint8Array>({
+        async start(c) {
+          c.enqueue(new TextEncoder().encode('event: ping\ndata: 1\n\n'));
+          await new Promise((r) => setTimeout(r, 5000));
+          c.close();
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }
+    return new Response('unexpected', { status: 500 });
+  });
+
+  let receivedTimeout: number | undefined;
+  const llm = new LlmResource(makeLlmClient());
+  const result = await llm.waitForResponse('chat-budget', {
+    timeout: 1000,
+    sseTimeoutMs: 400,
+    llmSseBaseUrl: 'https://sse.syntx.ai',
+    fallbackPoll: async (chatId, pollOpts) => {
+      receivedTimeout = pollOpts?.timeout;
+      return {
+        text: 'budget-reply',
+        media: [],
+        message: {
+          id: 'm1',
+          chat_id: chatId,
+          author_id: -1,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          is_favorite: false,
+          message_object: [],
+        },
+      };
+    },
+  });
+
+  assert.equal(result.text, 'budget-reply');
+  // SSE burned ~400ms of the 1000ms budget; the fallback must see the
+  // remaining ~600ms (allow scheduling slack), never the full 1000ms.
+  assert.ok(receivedTimeout !== undefined, 'fallbackPoll received opts.timeout');
+  assert.ok(
+    receivedTimeout! > 0 && receivedTimeout! <= 700,
+    `fallbackPoll timeout should be the remaining budget (~600ms), got ${receivedTimeout}ms`,
+  );
+  restore();
+});
+
+test('waitForResponse throws SyntxTimeoutError when SSE exhausts the whole budget', async () => {
+  const { restore } = installFetchMock((call) => {
+    if (call.url.startsWith('https://api.syntx.ai/api/v1/llm/chats/')) {
+      return new Response(
+        JSON.stringify({ jobs: [{ message_id: 'm1', stream_url: '/v1/jobs/j1/stream' }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    if (call.url.startsWith('https://sse.syntx.ai/')) {
+      const body = new ReadableStream<Uint8Array>({
+        async start(c) {
+          c.enqueue(new TextEncoder().encode('event: ping\ndata: 1\n\n'));
+          await new Promise((r) => setTimeout(r, 5000));
+          c.close();
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }
+    return new Response('unexpected', { status: 500 });
+  });
+
+  const llm = new LlmResource(makeLlmClient());
+  await assert.rejects(
+    llm.waitForResponse('chat-exhausted', {
+      timeout: 150,
+      sseTimeoutMs: 150,
+      llmSseBaseUrl: 'https://sse.syntx.ai',
+      fallbackPoll: async () => {
+        throw new Error('fallbackPoll must not run when no budget remains');
+      },
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof SyntxTimeoutError, `expected SyntxTimeoutError, got ${err}`);
+      assert.equal((err as SyntxTimeoutError).chatId, 'chat-exhausted');
+      return true;
+    },
+  );
   restore();
 });
 

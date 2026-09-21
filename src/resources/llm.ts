@@ -1,5 +1,5 @@
 import { BaseClient } from '../client';
-import { SyntxAbortError } from '../errors';
+import { SyntxAbortError, SyntxTimeoutError } from '../errors';
 import { openSse } from '../transport/sse';
 import type {
   LlmLimits,
@@ -20,6 +20,11 @@ interface WaitForResponseOptions {
   sseTimeoutMs?: number;
   onProgress?: (elapsedMs: number, timeoutMs: number) => void;
   llmSseBaseUrl?: string;
+  /**
+   * REST-polling fallback invoked when SSE delivers nothing (no active job,
+   * transport failure, or SSE-phase timeout). `opts.timeout` carries the
+   * REMAINING wall-clock budget for the whole wait, not the original timeout.
+   */
   fallbackPoll?: (chatId: string, opts: { timeout?: number; signal?: AbortSignal }) => Promise<CompletedMessage>;
 }
 
@@ -118,11 +123,16 @@ export class LlmResource {
       // Nothing to wait for — fall straight through to polling, which will
       // either return the completed reply (if it was already generated) or
       // time out gracefully.
-      return pollFallback(chatId, opts, timeout);
+      return pollFallback(chatId, opts, remaining());
     }
 
     const sseUrl = resolveSseUrl(llmSseBaseUrl, job.stream_url);
     const text = await consumeSse(sseUrl, sseTimeoutMs, opts?.signal, opts?.onProgress, timeout, start);
+    if (process.env.SYNTX_DEBUG) {
+      try {
+        process.stderr.write(`[sse-debug chat=${chatId}] outcome=${text.kind} after ${Date.now() - start}ms (budget ${timeout}ms)\n`);
+      } catch { /* best-effort */ }
+    }
 
     if (text.kind === 'ok' || text.kind === 'cancelled') {
       return buildCompletedMessage(chatId, text.text, job.message_id);
@@ -132,10 +142,18 @@ export class LlmResource {
       throw new SyntxAbortError(`Wait cancelled in chat ${chatId}`);
     }
 
-    // Timeout / error → fall back to REST polling for the remainder of the budget.
+    // Timeout / error → fall back to REST polling for the remainder of the
+    // budget. The remaining time is forwarded through the pollFallback
+    // helper as `opts.timeout`, so every fallback implementation that reads
+    // `opts.timeout` — including the MCP tool wrapper — honours the budget.
     const left = remaining();
     if (left <= 0) {
-      throw new Error(`Timeout waiting for response in chat ${chatId}`);
+      throw new SyntxTimeoutError(
+        `Timeout waiting for response in chat ${chatId}`,
+        chatId,
+        Date.now() - start,
+        timeout,
+      );
     }
     return pollFallback(chatId, opts, left);
   }
@@ -165,6 +183,7 @@ async function consumeSse(
       handle.close();
       resolve(o);
     };
+    const joined = () => accumulated.join('');
 
     const handle = openSse({
       url,
@@ -177,11 +196,34 @@ async function consumeSse(
           /* heartbeat is best-effort */
         }
         if (event.event === 'message') {
+          // Live contract (captured 2026-09-21): frames carry no `event:`
+          // line, so everything arrives as default `message` events whose
+          // `data:` is one of:
+          //   {"type": "content", "content": "<delta>", "job_id": "..."}  → append delta
+          //   {"type": "usage_final", ...}                                → usage stats, skip
+          //   [DONE]                                                        → stream terminator
+          // Plain-text `data:` (no JSON) is appended verbatim as a fallback.
+          if (event.data === '[DONE]') {
+            settle({ kind: 'ok', text: joined() });
+            return;
+          }
+          try {
+            const parsed = JSON.parse(event.data) as { type?: unknown; content?: unknown };
+            if (parsed && typeof parsed === 'object') {
+              if (parsed.type === 'content' && typeof parsed.content === 'string') {
+                accumulated.push(parsed.content);
+              }
+              // usage_final / unknown JSON envelope types carry no text.
+              return;
+            }
+          } catch {
+            /* not JSON — fall through and append raw */
+          }
           accumulated.push(event.data);
         } else if (event.event === 'complete') {
-          settle({ kind: 'ok', text: accumulated.join('\n') });
+          settle({ kind: 'ok', text: joined() });
         } else if (event.event === 'cancelled') {
-          settle({ kind: 'cancelled', text: accumulated.join('\n') });
+          settle({ kind: 'cancelled', text: joined() });
         } else if (event.event === 'error') {
           settle({ kind: 'error' });
         }
@@ -191,7 +233,9 @@ async function consumeSse(
 
     handle.done.then(
       () => {
-        if (!settled) settle({ kind: 'ok', text: accumulated.join('\n') });
+        // The live server closes the stream right after `[DONE]`; if the
+        // terminator frame was missed, a clean close still finalises ok.
+        if (!settled) settle({ kind: 'ok', text: joined() });
       },
       () => {
         if (!settled) settle({ kind: 'error' });
