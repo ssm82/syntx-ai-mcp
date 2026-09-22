@@ -1,6 +1,6 @@
 import type { SyntxTool, McpContext } from '../registry';
 import { textResult, toMcpError } from '../errors';
-import { wrapSdk } from './_helpers';
+import { wrapSdk, jsonOrAck } from './_helpers';
 import { SyntxAPIError } from '../../errors';
 
 /**
@@ -589,10 +589,7 @@ export const chatsTools: SyntxTool[] = [
 
       try {
         const response = await ctx.syntx.chats.rename(chatId, title);
-        if (response === undefined || response === null) {
-          return textResult(`Renamed chat ${chatId} to "${title}".`);
-        }
-        return textResult(JSON.stringify(response, null, 2));
+        return jsonOrAck(response, `Renamed chat ${chatId} to "${title}".`);
       } catch (err) {
         return toMcpError(err, 'rename-chat');
       }
@@ -648,10 +645,7 @@ export const chatsTools: SyntxTool[] = [
 
       try {
         const response = await ctx.syntx.chats.toggleFavorite(chatId);
-        if (response === undefined || response === null) {
-          return textResult(`Toggled favorite flag of chat ${chatId}.`);
-        }
-        return textResult(JSON.stringify(response, null, 2));
+        return jsonOrAck(response, `Toggled favorite flag of chat ${chatId}.`);
       } catch (err) {
         return toMcpError(err, 'toggle-chat-favorite');
       }
@@ -685,10 +679,10 @@ export const chatsTools: SyntxTool[] = [
 
       try {
         const response = await ctx.syntx.chats.toggleMessageFavorite(chatId, messageId);
-        if (response === undefined || response === null) {
-          return textResult(`Toggled favorite flag of message ${messageId} in chat ${chatId}.`);
-        }
-        return textResult(JSON.stringify(response, null, 2));
+        return jsonOrAck(
+          response,
+          `Toggled favorite flag of message ${messageId} in chat ${chatId}.`,
+        );
       } catch (err) {
         return toMcpError(err, 'toggle-message-favorite');
       }

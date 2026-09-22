@@ -263,36 +263,38 @@ export class BaseClient {
     }
   }
 
-  async post<T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
+  /**
+   * Shared implementation for the JSON-bodied HTTP verbs (POST / PATCH /
+   * PUT / DELETE): identical pipeline, only the method differs. `body`
+   * is falsy-skipped so body-less calls (e.g. toggles) send no payload.
+   */
+  private async jsonRequest<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    params?: Record<string, string | number | boolean | undefined>,
+  ): Promise<T> {
     return this.requestWithRetry<T>(this.buildUrl(path, params), {
-      method: 'POST',
+      method,
       headers: this.jsonHeaders(),
       body: body ? JSON.stringify(body) : undefined,
     }, false);
+  }
+
+  async post<T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
+    return this.jsonRequest<T>('POST', path, body, params);
   }
 
   async patch<T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
-    return this.requestWithRetry<T>(this.buildUrl(path, params), {
-      method: 'PATCH',
-      headers: this.jsonHeaders(),
-      body: body ? JSON.stringify(body) : undefined,
-    }, false);
+    return this.jsonRequest<T>('PATCH', path, body, params);
   }
 
   async put<T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
-    return this.requestWithRetry<T>(this.buildUrl(path, params), {
-      method: 'PUT',
-      headers: this.jsonHeaders(),
-      body: body ? JSON.stringify(body) : undefined,
-    }, false);
+    return this.jsonRequest<T>('PUT', path, body, params);
   }
 
   async delete<T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
-    return this.requestWithRetry<T>(this.buildUrl(path, params), {
-      method: 'DELETE',
-      headers: this.jsonHeaders(),
-      body: body ? JSON.stringify(body) : undefined,
-    }, false);
+    return this.jsonRequest<T>('DELETE', path, body, params);
   }
 
   /**

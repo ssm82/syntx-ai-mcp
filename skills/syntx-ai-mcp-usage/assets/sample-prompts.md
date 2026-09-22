@@ -94,20 +94,21 @@ upload-files(
 # → returns [{ url, filename, size, mime_type }]
 ```
 
-## 6. Discover-then-default dance
+## 6. Discover-then-use (no runtime defaults)
 
 ```text
-# What defaults are active?
-get-settings
-# → returns effective config (defaultAI, default model, base URL, ...)
+# Discover what is available
+list-ai-services
+list-models(ai_name="chatgpt")
 
-# Switch to chatgpt + gpt-5.5 for the rest of the session
-set-default-ai("chatgpt")
-set-default-model("gpt-5.5")
-
-# Subsequent tool calls that omit ai_name/model_type now resolve to these.
-# Verify:
-get-settings
+# Use the exact ids on the call itself — there are no runtime
+# default-switching tools; server defaults come from SYNTX_DEFAULT_AI /
+# SYNTX_DEFAULT_MODEL set at MCP-server startup.
+ask(
+  prompt="…",
+  ai_name="chatgpt",
+  model_type="gpt-5.5"
+)
 ```
 
 ## 7. Multi-turn follow-up on a chat
@@ -131,12 +132,11 @@ wait-for-response(
 ## 8. Auth liveness check (non-throwing)
 
 ```text
-# Preferred over whoami when you only need to know if the token works.
-validate-token
+# Never throws on missing/invalid token — reports authenticated: false.
+whoami
 # → returns { authenticated: true, user: <UserPublic> } or { authenticated: false }
 
-# Only call whoami when you need the full profile (and remember to sanitize it).
-whoami
+# Sanitize the user payload before logging it.
 ```
 
 ## Anti-patterns
@@ -147,7 +147,7 @@ These will silently waste time, leak secrets, or corrupt the chat history. Avoid
 - ❌ `ask(uuid=<existing>)` — `ask` always creates a new chat; resuming mid-chat requires `send-message`.
 - ❌ `upload-files` with `path` parameter when the MCP server runs over HTTP — LFI surface.
 - ❌ `transcribe(path=...)` over HTTP for the same reason.
-- ❌ Calling `set-default-ai` / `set-default-model` and assuming every tool honors defaults — some require explicit `ai_name`.
+- ❌ Omitting `ai_name` / `model_type` and assuming a specific model — the server default (`SYNTX_DEFAULT_*` at startup) may differ; pass ids explicitly.
 - ❌ Logging the raw response of `whoami` or any `User`-returning tool — internal identifiers leak.
 - ❌ Re-invoking `ask` after a timeout instead of recovering with `list-chats` + `get-messages` — produces duplicate chats.
 - ❌ `set-token` over HTTP for production deployments — restricted in v0.2.1; set `SYNTX_TOKEN` via env instead.

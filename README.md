@@ -34,14 +34,13 @@
   - [Идентификация и токен](#идентификация-и-токен)
   - [Каталог AI](#каталог-ai)
   - [Чаты и сообщения](#чаты-и-сообщения)
-  - [Генерация изображений](#генерация-изображений)
+  - [Генерация медиа](#генерация-медиа)
+  - [Аудио](#аудио)
   - [Аккаунт пользователя](#аккаунт-пользователя)
   - [Файлы](#файлы)
-- [Ресурсы (Resources)](#ресурсы-resources)
-- [Промпты (Prompts)](#промпты-prompts)
 - [Безопасность](#безопасность)
 - [Troubleshooting](#troubleshooting)
-- [Авторизация через Telegram (device flow)](#авторизация-через-telegram-device-flow)
+- [Получение токена](#получение-токена)
 - [Программное использование (SDK)](#программное-использование-sdk)
 - [Примеры](#примеры)
 - [Разработка](#разработка)
@@ -56,9 +55,9 @@
 **syntx-ai-mcp** — это сервер [Model Context Protocol](https://modelcontextprotocol.io), который открывает возможности платформы syntx.ai AI-ассистентам по единому стандарту. Вместо интеграции проприетарного API в каждый инструмент, вы один раз запускаете MCP-сервер — и любой MCP-клиент получает доступ к:
 
 - 💬 **Чатам и моделям** — создание сессий, отправка промптов, ожидание ответа (включая one-shot `ask`).
-- 🎨 **Генерации изображений** — Sora, Flux и другие design-сервисы.
-- 📚 **Каталогу** — AI-сервисы, модели с ограничениями, тарифные планы.
-- 👤 **Аккаунту** — профиль, баланс токенов, подписка.
+- 🎨 **Генерации медиа** — изображения (Sora, Flux и другие design-сервисы), аудио и видео.
+- 📚 **Каталогу** — AI-сервисы, модели с ограничениями.
+- 👤 **Аккаунту** — профиль, баланс токенов.
 - 📁 **Файлам** — список и удаление загруженных файлов.
 
 Пакет распространяется как **два-в-одном**: готовый MCP-сервер (`syntx-mcp` CLI) и полноценный типизированный SDK (`SyntxClient`) для прямого программного использования.
@@ -67,11 +66,9 @@
 
 | Группа | Что входит |
 |---|---|
-| 🛠️ **38 инструментов** | Идентификация, runtime-настройки, чаты, генерация (изображения + транскрипция), каталог, аккаунт, файлы, проекты (папки) |
-| 📄 **6 ресурсов** + 1 шаблон | `syntx://models`, `syntx://plans`, `syntx://user/me`, … |
-| 💡 **4 промпт-шаблона** | generate-landing, summarize-chat, translate, code-review |
+| 🛠️ **38 инструментов** | Идентификация, чаты, генерация медиа (изображения, аудио, видео), транскрипция, каталог, аккаунт, файлы, проекты (папки) |
 | 🔌 **2 транспорта** | stdio (по умолчанию) и stateless HTTP/SSE |
-| 🔐 **Runtime-настройки** | Задавайте токен, AI-провайдера и модель по умолчанию без перезапуска (`set-token`, `set-default-ai`, `set-default-model`) |
+| 🔐 **Токен в рантайме** | Задавайте токен без перезапуска (`set-token`); проверяйте статус через `whoami` |
 | 🧱 **Типобезопасность** | Полная типизация TypeScript, JSON Schema для каждого инструмента |
 | 🌐 **Dual-формат** | Сборка CJS + ESM + `.d.ts` |
 
@@ -303,22 +300,8 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 | `whoami` | Идентификационная *проверка*: `{ authenticated, user }`. **Никогда не возвращает ошибку** при отсутствии/невалидности (401/403) токена — сообщает `authenticated: false`. Реальные сбои (сеть, 5xx) всё же дают `isError`. | — |
 | `get-profile` | Полный профиль пользователя; при отсутствии токена возвращает понятную MCP-ошибку. | — |
 | `set-token` | Установить/заменить токен в рантайме (только в памяти — не переживает рестарт). | `token`* |
-| `validate-token` | Проверить валидность текущего токена. | — |
-| `start-telegram-auth` | Стартует сессию авторизации через Telegram (`POST /api/v1/auth/startauth`) и возвращает UUID + `t.me` deep-link. Пользователь должен открыть ссылку и нажать Start в боте. | `bot_username?` |
-| `poll-telegram-auth` | Поллит `GET /api/v1/auth/token/{uuid}`. Когда `complete: true`, устанавливает JWT как активный bearer-токен. | `uuid*`, `install_token?` |
-| `login-telegram` | One-shot flow: создать сессию → вернуть ссылку → поллить до получения JWT → установить токен. Блокирует до `timeout_ms`. | `bot_username?`, `poll_interval_ms?`, `timeout_ms?` |
-| `send-email-otp` | Запрашивает OTP на e-mail через `POST /api/v1/auth/email/send-otp`. Токен не устанавливает. | `email*`, `ref_uuid?`, `utm?` |
-| `verify-email-otp` | Проверяет OTP и устанавливает JWT (`POST /api/v1/auth/email/verify-otp`). По умолчанию `install_token: true`. | `email*`, `otp_code*`, `ref_uuid?`, `utm?`, `install_token?` |
 
 > `whoami` и `get-profile` различаются **семантикой ошибок**, а не составом полей (оба берут данные из одного `user.me()`). Используйте `whoami` для проверки статуса аутентификации без риска получить ошибку, `get-profile` — когда нужен полный профиль и готов обработать ошибку при отсутствии токена.
-
-### Настройки (runtime)
-
-| Инструмент | Описание | Параметры |
-|---|---|---|
-| `get-settings` | Текущая эффективная конфигурация сервера | — |
-| `set-default-model` | Установить модель по умолчанию (или очистить через `null`); опционально меняет AI-провайдера | `model`*, `ai_name?` |
-| `set-default-ai` | Переключить AI-провайдера по умолчанию | `ai_name`* |
 
 > `*` — обязательный параметр.
 
@@ -357,17 +340,20 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 | `list-chats` | Список чатов с фильтрами | `scope?`, `search?`, `direction?`, `page_size?` |
 | `create-chat` | Создать чат (обязателен `title`) | `title`*, `scope?`, `model?` |
 | `rename-chat` | Переименовать чат (`PUT /api/v1/chats/{chat_id}`) | `chat_id`*, `title`* |
+| `chat-exists` | Pre-flight проверка: существует ли чат (`GET /api/v1/chats/{chat_id}`; 404 → `false`) | `chat_id`* |
 | `get-messages` | История сообщений чата | `chat_id`*, `page_size?`, `direction?` |
+| `get-inprogress` | Активные генерации чата (пустой массив — ничего не генерируется) | `chat_id`* |
+| `get-favorite-messages` | Избранные (звёздные) сообщения чата — `get-messages` их не включает | `chat_id`*, `page_size?`, `direction?` |
 | `send-message` | Отправить промпт с опциональными вложениями, вернуть ack (ответ — асинхронно) | `chat_id`*, `prompt`*, `ai_name?`, `model_type?`, `attachments?` |
 | `wait-for-response` | Дождаться завершения генерации и вернуть текст + media-объекты | `chat_id`*, `timeout?`, `poll_interval?` |
 | `ask` ⭐ | One-shot: создать чат → отправить → дождаться ответа | `prompt`*, `title?`, `ai_name?`, `model_type?`, `scope?`, `timeout?`, `poll_interval?`, `mode?` |
 | `stream-message` 🌊 | One-shot со стримингом ответа по SSE (`sse.syntx.ai`) + `notifications/progress` | `prompt`*, `scope?`, `model?`, `ai_name?`, `model_type?`, `timeout?`, `mode?` |
 | `cancel-message` | Отменить in-flight генерацию сообщения | `chat_id`*, `message_id`* |
 | `delete-message` | Удалить отдельное сообщение (`DELETE /api/v1/chats/messages/{message_id}` — без chat id в пути); деструктивно | `message_id`* |
+| `delete-chat` | Удалить чат без возможности восстановления (`DELETE /api/v1/chats/{chat_id}`); деструктивно | `chat_id`* |
 | `toggle-chat-favorite` | Переключить флаг «избранное» чата: каждый вызов инвертирует состояние; проверить через `list-chats` | `chat_id`* |
 | `toggle-message-favorite` | Переключить флаг «избранное» сообщения: каждый вызов инвертирует состояние; читать через `get-favorite-messages` | `chat_id`*, `message_id`* |
 | `get-llm-limits` | Текущие LLM-лимиты (окна 6h / 7d) | — |
-| `generate-title` | Авто-заголовок для чата | `chat_uuid`* |
 
 > ⭐ **`ask`** — главный инструмент для stateless Q&A. Возвращает `chat_uuid` для последующих уточнений через `send-message` + `wait-for-response`.
 >
@@ -400,23 +386,20 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 
 > Идентификаторы моделей зависят от провайдера и могут меняться. Получите актуальный список через инструмент `list-models` (например, `list-models` с `scope: "text"` и `ai_name: "chatgpt"`).
 
-**Пример установки модели по умолчанию:**
+**Пример вызова с явной моделью:**
 
 ```json
-{ "name": "set-default-model", "arguments": { "model": "gpt-5-mini-2025-08-07", "ai_name": "chatgpt" } }
+{ "name": "ask", "arguments": { "prompt": "Привет!", "ai_name": "chatgpt", "model_type": "gpt-5.5" } }
 ```
 
-После этого любой вызов `ask` / `send-message` без явного `model_type` будет использовать установленную модель. Проверить состояние:
+Явный `model_type` переопределяет умолчания `SYNTX_DEFAULT_AI` / `SYNTX_DEFAULT_MODEL`; актуальные идентификаторы моделей получайте через `list-models`.
 
-```json
-{ "name": "get-settings", "arguments": {} }
-```
-
-### Генерация изображений
+### Генерация медиа
 
 | Инструмент | Описание | Параметры |
 |---|---|---|
 | `generate-image` | Генерация изображений через design-сервис | `chat_uuid`*, `prompt`*, `ai_name?`, `n?`, `model_type?`, `resolution?`, `quality?`, `image_url?` |
+| `generate-video` | Генерация видео (`wan_video`, `runway`, `kling`…) — долгая операция, ждите через `wait-for-response` | `chat_id`* (не `chat_uuid`!), `prompt`*, `ai_name?`, `model_type?`, `duration?`, `resolution?`, `aspect_ratio?`, `fps?`, `quality?`, `seed?`, `file_urls?`, `audio_url?` |
 
 ```json
 {
@@ -434,11 +417,12 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 > Сначала создайте чат через `create-chat`, чтобы получить `chat_uuid`.
 > Результат — JSON-метаданные генерации, которые возвращает design-сервис syntx.ai (состав полей зависит от сервиса; обычно содержит ссылки на сгенерированные изображения и метаданные запроса).
 
-### Транскрипция аудио
+### Аудио
 
 | Инструмент | Описание | Параметры |
 |---|---|---|
 | `transcribe` | Транскрипция аудио в текст (`POST /api/v1/audio/transcribe`). Возвращает `{ text }`. | `path` или `content_base64`*, `filename?`, `mime_type?` |
+| `generate-audio` | TTS / voice-change / генерация музыки (`elevenlabs`, `suno-music`…) | `chat_uuid`*, `prompt`*, `ai_name?`, `voice_id?`, `model_type?`, `style_prompt?`, `duration?`, `sample_rate?`, `file_urls?` |
 
 Один файл передаётся либо как `path` (путь на ФС сервера; **только stdio-транспорт**), либо как `content_base64` с обязательным `filename`.
 
@@ -460,7 +444,6 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 |---|---|
 | `get-profile` | Профиль (имя, email, аватар, auth-сервисы) |
 | `get-balance` | Баланс токенов |
-| `get-subscription` | Активная подписка и реферальная информация |
 
 ### Файлы
 
@@ -519,6 +502,7 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 
 | Инструмент | Описание | Параметры |
 |---|---|---|
+| `list-projects` | Список проектов для scope (`GET /api/v1/folders/{scope}/list`) | `scope?` (`text` по умолчанию; `text` / `image` / `video` / `audio`) |
 | `create-project` | Создать проект (a.k.a. папку) на syntx.ai; опционально сразу добавить чаты. | `title`*, `scope?` (`text` по умолчанию), `color?` (`#9C9C9C` по умолчанию), `chat_uuids?` |
 | `add-chats-to-project` | Добавить один или несколько существующих чатов в проект (`POST /api/v1/folders/{folder_uuid}/add`). | `folder_uuid`*, `chat_uuids`* (≥ 1, `uniqueItems`) |
 | `remove-chats-from-project` | Убрать чаты из проекта (`POST /api/v1/folders/{folder_uuid}/remove`, bare-массив UUID). | `folder_uuid`*, `chat_uuids`* (≥ 1, `uniqueItems`) |
@@ -554,40 +538,6 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 
 ---
 
-## Ресурсы (Resources)
-
-Ресурсы — это данные, которые ассистент может читать напрямую по URI (возвращаются как JSON).
-
-| URI | Имя | Описание |
-|---|---|---|
-| `syntx://models` | AI Models Catalog | Полный каталог моделей с ограничениями |
-| `syntx://ai-services` | AI Services | Доступные AI-сервисы |
-| `syntx://plans` | Subscription Plans | Тарифные планы |
-| `syntx://settings` | Application Settings | OAuth-провайдеры, страна, IP + локальная конфигурация MCP-сервера (`defaultAI`, `defaultModel`, transport) |
-| `syntx://user/me` | Current User Profile | Профиль текущего пользователя |
-| `syntx://user/balance` | Token Balance | Баланс токенов |
-
-**Шаблон ресурса:**
-
-| Шаблон URI | Описание |
-|---|---|
-| `syntx://chat/{uuid}/messages` | История сообщений конкретного чата по UUID |
-
----
-
-## Промпты (Prompts)
-
-Готовые шаблоны диалога — ассистент доотправляет их через `ask`/`send-message`.
-
-| Промпт | Параметры | Назначение |
-|---|---|---|
-| `generate-landing` | `topic`*, `style?` | Сгенерировать одностраничный HTML-лендинг |
-| `summarize-chat` | `chat_uuid`* | Краткое изложение истории чата |
-| `translate` | `text`*, `target_lang`* | Перевод текста |
-| `code-review` | `code`* | Ревью кода с исправленным вариантом |
-
----
-
 ## Безопасность
 
 - **Токен syntx.ai (`SYNTX_TOKEN` / `set-token` / Telegram-flow) хранится только в памяти** — не пишется на диск, не переживает рестарт процесса, не логируется сервером. При `set-token` токен проходит через JSON-RPC-канал (по сети при HTTP-транспорте) — учитывайте логи вашего MCP-клиента.
@@ -603,144 +553,45 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 | Симптом | Вероятная причина | Решение |
 |---|---|---|
 | MCP-клиент не видит инструменты | Неверный путь к команде / Node.js < 18 | Проверьте путь, версию Node, логи клиента |
-| `Authentication required or invalid` | Не задан/истёк токен | `set-token` или `SYNTX_TOKEN`; проверьте через `whoami`/`validate-token` |
+| `Authentication required or invalid` | Не задан/истёк токен | `set-token` или `SYNTX_TOKEN`; проверьте через `whoami` |
 | HTTP `/mcp` возвращает 401 | Отсутствует/неверен `Authorization: Bearer` | Задайте `MCP_HTTP_TOKEN` и передавайте заголовок клиентом |
 | HTTP `/mcp` возвращает 403 | `Host`/`Origin` не в allow-list | Используйте `127.0.0.1`/`localhost` либо `MCP_HTTP_HOSTNAME`, совпадающий с Host |
-| Стриминг не приходит | `SYNTX_STREAM_MODE=off` или клиент не поддерживает progress | Проверьте `get-settings`; `off` отключает ожидание только у `ask` |
+| Стриминг не приходит | `SYNTX_STREAM_MODE=off` или клиент не поддерживает progress | Проверьте `SYNTX_STREAM_MODE`; `off` отключает ожидание только у `ask` |
 | Запрос долго висит | Малый `SYNTX_POLL_TIMEOUT` / большой `SYNTX_TIMEOUT` | Настройте таймауты под задачу |
-| Модель не найдена | Неверный `model_type` | Вызовите `list-models`, затем `set-default-model` |
+| Модель не найдена | Неверный `model_type` | Вызовите `list-models` и передайте актуальный `model_type` в `ask` / `send-message` |
 | `transcribe` отклоняет `path` | Используется HTTP-транспорт | Передайте аудио через `content_base64` |
-| `login-telegram` висит до таймаута | Пользователь не открыл deep-link или не нажал Start в боте | Откройте `deep_link` из результата `start-telegram-auth` в Telegram, нажмите Start, затем повторите `poll-telegram-auth` |
-| `poll-telegram-auth` возвращает `valid: false` | UUID устарел / не существует | Создайте новую сессию через `start-telegram-auth` |
-| `verify-email-otp` возвращает `token_installed: false` | Сервер не вернул поле `token` в ожидаемом месте | Загляните в `result` ответа и при необходимости вызовите `set-token` вручную |
-| `send-email-otp` падает с 4xx | Невалидный e-mail, превышен rate-limit или e-mail уже использован | Проверьте адрес, подождите и повторите; для Telegram/Google используйте соответствующие flow |
 
 ---
 
-## Авторизация через Telegram (device flow)
+## Получение токена
 
-syntx.ai поддерживает вход через Telegram-бот `@syntxaibot` без ручного копирования токена. Flow построен на **device authorization**: сервер выдаёт UUID-сессию, пользователь подтверждает её в Telegram, а клиент поллит состояние.
+MCP-инструменты авторизации (Telegram / e-mail OTP) удалены при сокращении поверхности в v0.3.0. Токен устанавливается одним из способов:
 
-```
-1. start-telegram-auth            → { uuid, deep_link }
-2. (пользователь открывает deep_link и нажимает Start в @syntxaibot)
-3. poll-telegram-auth (или login-telegram) → JWT устанавливается в рантайме
-```
+- **Переменная окружения** `SYNTX_TOKEN` при запуске MCP-сервера.
+- **Инструмент `set-token`** — задать/заменить JWT в рантайме (хранится только в памяти, не переживает рестарт).
+- Проверка статуса — `whoami` (никогда не падает) или `get-profile`.
 
-### Через MCP-инструменты
+Сам JWT выдаёт платформа: войдите на syntx.ai и скопируйте токен из настроек профиля.
 
-**Одношаговый flow** (для headless-драйверов, которые могут передать ссылку пользователю):
-
-```json
-{
-  "name": "login-telegram",
-  "arguments": { "timeout_ms": 300000 }
-}
-```
-
-Возвращает `{ ok: true, deep_link, uuid, token_installed: true }`. Блокирует до 5 минут (настраивается через `timeout_ms`).
-
-**Двухшаговый flow** (когда нужно отделить показ ссылки от ожидания):
-
-```json
-// 1. Создать сессию и получить ссылку
-{ "name": "start-telegram-auth", "arguments": { "bot_username": "syntxaibot" } }
-// → { uuid: "a302de6c-…", deep_link: "https://telegram.me/syntxaibot?start=auth_a302de6c-…" }
-
-// 2. (пользователь нажал Start в боте)
-
-// 3. Забрать токен
-{ "name": "poll-telegram-auth", "arguments": { "uuid": "a302de6c-…" } }
-// → { valid: true, complete: true, token: "eyJhbGc…", token_installed: true }
-```
-
-### Через SDK
+**Через SDK** доступны полноценные программные флоу авторизации — они не зависят от MCP-инструментов:
 
 ```ts
 import { SyntxClient } from 'syntx-ai-mcp';
 
 const syntx = new SyntxClient();
 
-// Одношаговый flow
-const result = await syntx.auth.loginWithTelegram({
-  botUsername: 'syntxaibot',
-  pollIntervalMs: 3000,
-  timeoutMs: 5 * 60_000,
-  onLink: (deepLink, uuid) => console.log('Откройте:', deepLink),
+// Telegram device flow
+const { token } = await syntx.auth.loginWithTelegram({
+  onLink: (deepLink) => console.log('Откройте:', deepLink),
 });
-console.log('JWT:', result.token); // уже установлен как Bearer
 
-// Двухшаговый flow
-const { uuid } = await syntx.auth.startAuth();
-const link = syntx.auth.getTelegramAuthLink(uuid);
-// …пользователь нажимает Start в боте…
-const status = await syntx.auth.pollAuthToken(uuid);
-if (status.complete && status.token) {
-  syntx.auth.setToken(status.token);
-}
-```
-
-> **Где живёт токен:** как и `set-token`, Telegram-flow хранит JWT только в памяти процесса. После рестарта MCP-сервера нужно снова пройти авторизацию. Не передавайте токены в query-параметрах — только в `Authorization: Bearer`.
-
----
-
-## Авторизация через Email (OTP)
-
-syntx.ai поддерживает вход по одноразовому коду, отправляемому на e-mail. Flow двухшаговый — сервер **не** хранит сессию, доступную для поллинга, поэтому в отличие от Telegram здесь нет «one-shot» MCP-инструмента: пользователь должен физически прочитать код из письма.
-
-```
-1. send-email-otp         → { ok: true, hint: "проверьте почту" }
-2. (пользователь читает OTP из письма)
-3. verify-email-otp       → { token_installed: true, … }
-```
-
-### Через MCP-инструменты
-
-```jsonc
-// 1. Запросить код
-{
-  "name": "send-email-otp",
-  "arguments": { "email": "user@example.com", "utm": "" }
-}
-// → { "ok": true, "email": "user@example.com", "hint": "Ask the user for the OTP …" }
-
-// 2. (пользователь вводит код из письма)
-
-// 3. Подтвердить код и установить токен
-{
-  "name": "verify-email-otp",
-  "arguments": {
-    "email": "user@example.com",
-    "otp_code": "866735",
-    "install_token": true
-  }
-}
-// → { "ok": true, "token_installed": true, "result": { "token": "eyJ…" } }
-```
-
-`ref_uuid` / `utm` нужно передавать в оба вызова с одинаковыми значениями — они форвардятся в JSON-тело запроса как есть.
-
-### Через SDK
-
-```ts
-import { SyntxClient } from 'syntx-ai-mcp';
-
-const syntx = new SyntxClient();
-
-// Двухшаговый flow — если у вас есть способ спросить код у пользователя
-await syntx.auth.sendEmailOtp('user@example.com', { utm: '' });
-const code = await askUserForOtp();        // любой UI / prompt / RPC
-const result = await syntx.auth.verifyEmailOtp('user@example.com', code, { utm: '' });
-// result.token уже установлен как Bearer-токен
-
-// One-shot flow — когда есть готовый колбэк
-const { token } = await syntx.auth.loginWithEmail('user@example.com', {
-  utm: '',
+// Либо e-mail OTP
+const { token: jwt } = await syntx.auth.loginWithEmail('user@example.com', {
   otpProvider: async () => askUserForOtp(),
 });
 ```
 
-> **Где живёт токен:** то же правило, что и для Telegram-flow — JWT хранится только в памяти процесса. После рестарта MCP-сервера нужно снова пройти авторизацию.
+> **Где живёт токен:** JWT хранится только в памяти процесса. После рестарта MCP-сервера задайте его заново (`SYNTX_TOKEN` или `set-token`). Не передавайте токены в query-параметрах — только в `Authorization: Bearer`. Полный список методов SDK: `syntx.auth.startAuth` / `pollAuthToken` / `sendEmailOtp` / `verifyEmailOtp` / `loginWithEmail` / `loginWithTelegram`.
 
 ---
 
@@ -895,7 +746,7 @@ npm run dev          # сборка в watch-режиме
 2. Включите его в `src/mcp/tools/index.ts` (`allTools`).
 3. Готово — сервер и `tools/list` подхватят автоматически.
 
-Аналогично для ресурсов (`src/mcp/resources/`) и промптов (`src/mcp/prompts/`). Детально — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Детально — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 **Agent skills (каталог `skills/`).** В корне репозитория также живут [Anthropic-совместимые](https://agentskills.io/specification) skills для AI-агентов, использующих MCP: каждый skill — это папка `skills/<name>/SKILL.md` (≤ 500 строк) с YAML-frontmatter (`name`, `description`, `license`, `compatibility`, `metadata`), необязательными `references/` и `assets/`. Skill публикуется в git вместе с кодом; на машине пользователя Kilo подхватывает его после копирования в `~/.config/kilo/skills/`. Версия `metadata.version` синхронизируется с `package.json:version`.
 

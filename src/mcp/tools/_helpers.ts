@@ -27,3 +27,17 @@ export function wrapSdk<TArgs = Record<string, unknown>, TResult = unknown>(
     }
   };
 }
+
+/**
+ * Render an SDK response as a tool result, with a deterministic fallback.
+ *
+ * Used by mutation tools whose endpoints may answer 2xx with an empty body
+ * (the SPA ignores these response bodies): `undefined` / `null` payloads are
+ * reported via the human-readable `ack` message instead of the literal
+ * string "undefined"; any other payload is JSON-stringified verbatim.
+ */
+export function jsonOrAck(response: unknown, ack: string): SyntxToolResult {
+  return response === undefined || response === null
+    ? textResult(ack)
+    : textResult(JSON.stringify(response, null, 2));
+}

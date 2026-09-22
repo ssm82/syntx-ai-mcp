@@ -58,7 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New MCP tools `remove-chats-from-project`, `update-project`,
   `reorder-project` — wrap the new folder SDK methods; named
   `reorder-` to avoid confusion with `add-chats-to-project` / chat
-  moving.
+  moving. `reorder-project`'s schema tightened: `after_uuid` carries
+  `minLength: 1` (empty strings are still rejected by the handler too).
 - New `BaseClient.stream(path, init?)` — opens a `Response` without
   consuming the body. Used by the SSE transport; not retried.
 - New minimal SSE client `src/transport/sse.ts` (`openSse({ url, headers, signal, onEvent })`)
@@ -79,6 +80,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `legacyTextTransport` (default `false`),
   `listLlmModelsCacheMs` (default `60000`).
   Set `SYNTX_LEGACY_TEXT_TRANSPORT=true` to restore the v0.3.0 behaviour.
+
+### Fixed
+
+- Internal refactor (no behavior change): shared `jsonOrAck` helper for
+  mutation-tool acks and `BaseClient.jsonRequest` behind
+  `post`/`patch`/`put`/`delete` — removes six duplicated if/return
+  blocks and four near-identical HTTP-verb methods.
+- README / SKILL.md resynced to the real 38-tool MCP surface: removed
+  11 ghost tool rows (auth flows, `get-settings`, `set-default-model`,
+  `set-default-ai`, `get-subscription`, `generate-title`), removed the
+  stale Resources / Prompts sections and MCP auth walkthroughs
+  (features deleted in 0.3.0; replaced with a short "Получение токена"
+  section), added the 7 missing tool rows (`chat-exists`, `delete-chat`,
+  `get-inprogress`, `get-favorite-messages`, `generate-audio`,
+  `generate-video`, `list-projects`). New `tests/tool-inventory.test.ts`
+  pins the count and keeps both docs in sync with `allTools`.
 
 ## [0.3.0] - Unreleased
 

@@ -21,17 +21,16 @@ function installFetchMock(responses: Array<{ status?: number; body?: unknown }>)
     calls.push({ url: String(input), init });
     const next = responses[i++] ?? { status: 200, body: {} };
     const status = next.status ?? 200;
-    return new Response(
+    const body =
       next.body === undefined
         ? ''
         : typeof next.body === 'string'
           ? next.body
-          : JSON.stringify(next.body),
-      {
-        status,
-        headers: { 'content-type': 'application/json' },
-      },
-    );
+          : JSON.stringify(next.body);
+    return new Response(body, {
+      status,
+      headers: body.length > 0 ? { 'content-type': 'application/json' } : undefined,
+    });
   }) as typeof fetch;
   return {
     calls,

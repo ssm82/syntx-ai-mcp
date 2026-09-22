@@ -47,11 +47,12 @@ The exposed surface is **38 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 | `list-models` | List models with constraints | yes | Source of truth for `model_type` identifiers. |
 | `get-model-info` | Per-model pricing/limits | yes | Required for cost estimation. |
 
-### Chats (14)
+### Chats (16)
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
 | `list-chats` | List existing chats | yes | Filter by `scope` or `search=<title>` for recovery. |
 | `create-chat` | Create persistent chat | yes | Returns `uuid`; safe to call before prompt is final. |
+| `chat-exists` | Pre-flight existence check | yes | 404 maps to `false`, 200 to `true`. Use before `send-message` with stale references. |
 | `rename-chat` | Rename a chat (`PUT /api/v1/chats/{chat_id}`) | yes | |
 | `get-messages` | Read chat history | yes | Use `direction="newer"` after recovery. |
 | `get-inprogress` | Active in-progress generations for a chat | yes | Used internally by `wait-for-response` to gate on prior requests — surface for recovery after interrupted generations. |
@@ -64,6 +65,7 @@ The exposed surface is **38 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 | `wait-for-response` | Block for assistant reply | yes | Use after `send-message`. |
 | `ask` | One-shot: create + send + wait | yes | Default timeout 60 s — often too short. |
 | `stream-message` | Stream with REST polling + per-chunk notifications | yes | `mode: "auto"` / `"stream"` / `"poll"`. |
+| `cancel-message` | Cancel an in-flight message generation | yes | 404 from cancel is treated as success (race with completion). |
 
 ### Files (3)
 | Tool | Purpose | Blocking? | Notes |
@@ -72,14 +74,18 @@ The exposed surface is **38 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 | `upload-files` | Upload ≤10 files, ≤100 MB each | yes | `path` is LFI on non-stdio transport — see security caveats. |
 | `delete-file` | Delete an uploaded file by `file_id` or `url` | yes | Destructive — confirm before invoking. |
 
-### Media (5)
+### Media (4)
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
 | `transcribe` | Audio → text | yes | Same LFI caveat for `path` parameter. |
 | `generate-image` | Image generation | yes | Requires target `chat_uuid`. |
 | `generate-audio` | TTS / voice-change / music generation | yes | Requires target `chat_uuid`. |
 | `generate-video` | Video generation | yes | Requires target `chat_id` (note: `chat_id`, not `chat_uuid`). |
-| — | — | — | — |
+
+### LLM (1)
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
+| `get-llm-limits` | LLM usage limits (6h / 7d windows) | yes | Each window reports `percent_left`, `started_at`, `expires_at`; expired windows normalise to 100%. |
 
 ### Projects (7) — `syntx://folders`
 | Tool | Purpose | Blocking? | Notes |

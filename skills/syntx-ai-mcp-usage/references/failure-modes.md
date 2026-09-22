@@ -12,7 +12,6 @@ Symptom → fix recipes for the common failure modes when operating `syntx-ai-mc
 - [upload-files path rejected over HTTP](#upload-files-path-rejected-over-http)
 - [transcribe path rejected over HTTP](#transcribe-path-rejected-over-http)
 - [generate-image requires a chat_uuid](#generate-image-requires-a-chat_uuid)
-- [set-default-ai silently ignored](#set-default-ai-silently-ignored)
 - [Streaming mode fails to connect](#streaming-mode-fails-to-connect)
 - [Rate-limit / 429](#rate-limit--429)
 - [Destructive tool used by accident](#destructive-tool-used-by-accident)
@@ -72,7 +71,7 @@ See [`chat-lifecycle.md`](chat-lifecycle.md) for full diagrams and the worked re
 
 1. Acquire a fresh JWT (the syntx.ai account flow — see project README).
 2. `set-token(<fresh JWT>)` — installs in process memory.
-3. `validate-token` (or `whoami`) to confirm — non-throwing.
+3. `whoami` to confirm — non-throwing.
 4. Retry the failed call.
 
 The JWT is in-memory only — lost on server restart. For HTTP transport deployments, prefer setting `SYNTX_TOKEN` in the server's environment.
@@ -136,17 +135,6 @@ The `path`-based form remains available for `stdio` transport only. For stdio, e
 2. `generate-image(chat_uuid=<uuid>, prompt=..., model_type=..., resolution=..., image_url?=[...])`.
 
 The image is attached to the chat history and visible via `get-messages(chat_id=<uuid>, direction="newer")`.
-
-## set-default-ai silently ignored
-
-**Symptom:** After calling `set-default-ai("claude")`, subsequent calls still route to the previous default.
-
-**Cause:** Some tools require explicit `ai_name` regardless of the default. The default is consulted only when the caller omits the parameter.
-
-**Fix:** Pass `ai_name="claude"` explicitly on the affected call, or confirm the issue is config-routing by:
-
-1. `get-settings` → confirm `defaultAI` actually updated.
-2. Re-invoke the failing tool with explicit `ai_name` + `model_type`.
 
 ## Streaming mode fails to connect
 

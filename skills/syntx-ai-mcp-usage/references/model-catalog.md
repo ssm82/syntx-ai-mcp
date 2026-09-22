@@ -12,7 +12,7 @@ Before any model-sensitive call:
 2. `list-models(ai_name=<chosen>)` → list of `value` strings valid for that provider.
 3. `get-model-info(ai_name, model_type)` → confirm pricing and per-call limits.
 
-Omitting both `ai_name` and `model_type` falls back to `get-settings().defaultAI` and `get-settings().default model`. Inspect via `get-settings` whenever you see an unexpected model being selected.
+Omitting both `ai_name` and `model_type` falls back to the server's startup defaults (`SYNTX_DEFAULT_AI` / `SYNTX_DEFAULT_MODEL`, configured when the MCP server launches). Prefer passing `ai_name` + `model_type` explicitly on every model-sensitive call.
 
 ## Known `ai_name` providers (from `list-ai-services`)
 
@@ -54,15 +54,10 @@ If you must guard against a model id typo, capture the full `detail.message` fro
 
 Resolution order per call when caller omits parameters:
 
-1. `ai_name` → `get-settings().defaultAI` → server default if unset.
-2. `model_type` → `get-settings().default model` → server default if unset.
+1. `ai_name` → server default (`SYNTX_DEFAULT_AI` at MCP-server startup, `chatgpt` if unset).
+2. `model_type` → server default (`SYNTX_DEFAULT_MODEL` at MCP-server startup, provider default if unset).
 
-To switch defaults at runtime:
-
-- `set-default-ai("chatgpt")`
-- `set-default-model("gpt-5.5")`
-
-To clear an override and revert to server-default behavior, pass `null` to `set-default-model`.
+There are no runtime default-switching tools — to use a different model, pass `ai_name` / `model_type` explicitly in the `ask` / `send-message` call.
 
 ## Cost & limit checks
 
@@ -71,7 +66,7 @@ To clear an override and revert to server-default behavior, pass `null` to `set-
 - Pricing (`chars_count`, `batch_size`, `mode`, `quality`, `video_duration` — depends on model family).
 - Limits (image resolution, video duration, sample rate for audio).
 
-Pass the relevant params explicitly when invoking the corresponding tool. For image generation via `generate-image`, pass `model_type` (`"gpt-image-2"` in current catalogs) and `resolution` (e.g., `"720x1280"`). For audio via `text_to_audio`, pass `voice_id`, `sample_rate`, `bitrate`, etc.
+Pass the relevant params explicitly when invoking the corresponding tool. For image generation via `generate-image`, pass `model_type` (`"gpt-image-2"` in current catalogs) and `resolution` (e.g., `"720x1280"`). For audio via `generate-audio`, pass `voice_id`, `sample_rate`, `bitrate`, etc.
 
 ## Catalog refresh cadence
 
@@ -80,4 +75,4 @@ Pass the relevant params explicitly when invoking the corresponding tool. For im
 | First call in a session | `list-ai-services` + `list-models` for likely `ai_name`. |
 | 400 response on `model_type` | Re-run `list-models`; copy verbatim. |
 | Provider change announcement | `list-models` again before any production use. |
-| Session timeout / reconnect | Defaults may have changed server-side — call `get-settings`. |
+| Session timeout / reconnect | Re-run `list-models` if unsure — ids may have rotated server-side. |

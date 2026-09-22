@@ -1,6 +1,6 @@
 import type { SyntxTool } from '../registry';
 import { textResult, toMcpError, toolError } from '../errors';
-import { wrapSdk } from './_helpers';
+import { wrapSdk, jsonOrAck } from './_helpers';
 
 /**
  * Project (folder) management tools.
@@ -242,12 +242,10 @@ export const foldersTools: SyntxTool[] = [
 
       try {
         const response = await ctx.syntx.folders.removeChats(folderUuid, chatUuids);
-        if (response === undefined || response === null) {
-          return textResult(
-            `Removed ${chatUuids.length} chat(s) from project ${folderUuid}.`,
-          );
-        }
-        return textResult(JSON.stringify(response, null, 2));
+        return jsonOrAck(
+          response,
+          `Removed ${chatUuids.length} chat(s) from project ${folderUuid}.`,
+        );
       } catch (err) {
         return toMcpError(err, 'remove-chats-from-project');
       }
@@ -296,10 +294,7 @@ export const foldersTools: SyntxTool[] = [
 
       try {
         const response = await ctx.syntx.folders.update(folderUuid, data);
-        if (response === undefined || response === null) {
-          return textResult(`Updated project ${folderUuid}.`);
-        }
-        return textResult(JSON.stringify(response, null, 2));
+        return jsonOrAck(response, `Updated project ${folderUuid}.`);
       } catch (err) {
         return toMcpError(err, 'update-project');
       }
@@ -317,6 +312,7 @@ export const foldersTools: SyntxTool[] = [
         folder_uuid: { type: 'string', description: 'Project UUID (required).' },
         after_uuid: {
           type: ['string', 'null'],
+          minLength: 1,
           description: 'UUID of the project to place this one after. Omit or pass null to move to the top.',
         },
       },
@@ -339,14 +335,12 @@ export const foldersTools: SyntxTool[] = [
 
       try {
         const response = await ctx.syntx.folders.move(folderUuid, afterUuid);
-        if (response === undefined || response === null) {
-          return textResult(
-            afterUuid === null
-              ? `Moved project ${folderUuid} to the top.`
-              : `Moved project ${folderUuid} after ${afterUuid}.`,
-          );
-        }
-        return textResult(JSON.stringify(response, null, 2));
+        return jsonOrAck(
+          response,
+          afterUuid === null
+            ? `Moved project ${folderUuid} to the top.`
+            : `Moved project ${folderUuid} after ${afterUuid}.`,
+        );
       } catch (err) {
         return toMcpError(err, 'reorder-project');
       }

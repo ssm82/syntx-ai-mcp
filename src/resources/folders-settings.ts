@@ -126,6 +126,11 @@ export class FoldersResource {
    * `ai-folders` Pinia store: only the provided keys are serialized. The
    * SPA merges the response into the local folder object; the SDK
    * surfaces the raw response without pinning its schema.
+   *
+   * Contract: values are forwarded **verbatim** — empty strings are sent
+   * as-is. The MCP tool `update-project` rejects empty `title`/`color`
+   * before reaching this method; direct SDK callers must validate
+   * themselves.
    */
   async update(folderUuid: string, data: { title?: string; color?: string }): Promise<unknown> {
     const body: { title?: string; color?: string } = {};
