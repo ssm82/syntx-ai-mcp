@@ -97,6 +97,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `generate-video`, `list-projects`). New `tests/tool-inventory.test.ts`
   pins the count and keeps both docs in sync with `allTools`.
 
+### Security
+
+- Pinned transitive dependencies via `package.json#overrides` to clear
+  `npm audit --omit=dev --audit-level=high` (was 4 vulnerabilities, 2 high):
+  - `fast-uri` `^3.1.8` (was 3.1.4 — host confusion / SSRF via URI parsing;
+    pulled in by `ajv` used for tool-input JSON-Schema validation)
+  - `hono` `^4.13.8` (was 4.12.30 — ReDoS / proxy-header leaks; pulled in
+    by `@modelcontextprotocol/sdk` transport)
+  - `ip-address` `^10.7.2` (was 10.2.0 — SSRF via IPv4/IPv6 misclassification;
+    pulled in via `express-rate-limit` from MCP SDK OAuth handlers — those
+    handlers are not wired by syntx-ai-mcp, so this was not reachable at
+    runtime, but the override keeps the audit clean and the lockfile honest)
+  - `qs` `^6.16.0` (was 6.15.3 — array-limit bypass; same dead-path origin)
+
 ## [0.3.0] - Unreleased
 
 ### Changed
