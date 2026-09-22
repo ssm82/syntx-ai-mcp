@@ -104,6 +104,56 @@ export class FoldersResource {
   }
 
   /**
+   * Remove one or more chats from a folder (project).
+   *
+   * `POST /api/v1/folders/{folderUuid}/remove`
+   *
+   * Inverse of {@link addChats}: the server consumes the body as a bare
+   * JSON array of chat UUIDs (captured `ai-folders` Pinia store call:
+   * `qn.post(\`/folders/${_}/remove\`,S)` with `S=[]` default). Returns
+   * the upstream response unchanged; the wire shape is not pinned.
+   */
+  async removeChats(folderUuid: string, chatUuids: string[]): Promise<unknown> {
+    return this.client.post<unknown>(`/api/v1/folders/${encodeURIComponent(folderUuid)}/remove`, chatUuids);
+  }
+
+  /**
+   * Update a folder's title and/or color.
+   *
+   * `PATCH /api/v1/folders/{folderUuid}/change`
+   *
+   * Mirrors the `updateFolder(uuid,{title,color})` action in the captured
+   * `ai-folders` Pinia store: only the provided keys are serialized. The
+   * SPA merges the response into the local folder object; the SDK
+   * surfaces the raw response without pinning its schema.
+   */
+  async update(folderUuid: string, data: { title?: string; color?: string }): Promise<unknown> {
+    const body: { title?: string; color?: string } = {};
+    if (data.title !== undefined) body.title = data.title;
+    if (data.color !== undefined) body.color = data.color;
+    return this.client.patch<unknown>(`/api/v1/folders/${encodeURIComponent(folderUuid)}/change`, body);
+  }
+
+  /**
+   * Reorder a folder within its scope.
+   *
+   * `PATCH /api/v1/folders/{folderUuid}/move` with body
+   * `{after_uuid: string | null}`.
+   *
+   * Mirrors the captured `ai-folders` Pinia store call
+   * (`qn.patch(\`/folders/${_}/move\`,{after_uuid:S})`): pass the uuid of
+   * the folder to position after, or `null` to move to the top. The
+   * response has been observed to contain `sort_order`; the raw response
+   * is passed through unpinned.
+   */
+  async move(folderUuid: string, afterUuid: string | null): Promise<unknown> {
+    return this.client.patch<unknown>(
+      `/api/v1/folders/${encodeURIComponent(folderUuid)}/move`,
+      { after_uuid: afterUuid },
+    );
+  }
+
+  /**
    * Permanently delete a folder (project).
    *
    * `DELETE /api/v1/folders/{folderUuid}/delete`

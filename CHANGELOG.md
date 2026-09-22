@@ -25,8 +25,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New SDK method `syntx.chats.cancelMessage(chatId, messageId)` →
   `POST /api/v1/chats/{chatId}/messages/{messageId}/cancel`. 404 is
   treated as success (race with completion).
-- New MCP tool `get-llm-limits` — returns the SDK `LlmLimits` payload.
+- New SDK chat-mutation methods (all shapes extracted from the prod-SPA
+  bundle `1789730449`; response bodies unpinned → `unknown`):
+  - `syntx.chats.rename(chatId, title)` → `PUT /api/v1/chats/{chatId}`,
+    body `{title}`.
+  - `syntx.chats.toggleFavorite(chatId)` → body-less
+    `POST /api/v1/chats/{chatId}/favorite` — **toggle**, flips
+    `chat.is_favorite` per call.
+  - `syntx.chats.toggleMessageFavorite(chatId, messageId)` → body-less
+    `POST /api/v1/chats/{chatId}/messages/{messageId}/favorite` —
+    **toggle** of `message.is_favorite`.
+  - `syntx.chats.deleteMessage(messageId)` →
+    `DELETE /api/v1/chats/messages/{messageId}` (no chatId segment;
+    404 propagates).
+- New SDK folder methods (from the captured `ai-folders` Pinia store):
+  - `syntx.folders.removeChats(folderUuid, chatUuids)` →
+    `POST /api/v1/folders/{uuid}/remove`, bare JSON array body (inverse
+    of `addChats`).
+  - `syntx.folders.update(folderUuid, {title?, color?})` →
+    `PATCH /api/v1/folders/{uuid}/change`; only provided keys serialized.
+  - `syntx.folders.move(folderUuid, afterUuid | null)` →
+    `PATCH /api/v1/folders/{uuid}/move`, body `{after_uuid}` (`null` =
+    move to top).
+- New `BaseClient.put(path, body?, params?)` — mirrors `patch` with
+  `method: 'PUT'`.
+- New MCP tools `get-llm-limits` — returns the SDK `LlmLimits` payload.
 - New MCP tool `cancel-message` — wraps `syntx.chats.cancelMessage`.
+- New MCP tools `rename-chat`, `delete-message` (destructive),
+  `toggle-chat-favorite`, `toggle-message-favorite` — wrap the new
+  chat-mutation SDK methods; toggle tools document flip semantics
+  (verify via `list-chats` / `get-favorite-messages`).
+- New MCP tools `remove-chats-from-project`, `update-project`,
+  `reorder-project` — wrap the new folder SDK methods; named
+  `reorder-` to avoid confusion with `add-chats-to-project` / chat
+  moving.
 - New `BaseClient.stream(path, init?)` — opens a `Response` without
   consuming the body. Used by the SSE transport; not retried.
 - New minimal SSE client `src/transport/sse.ts` (`openSse({ url, headers, signal, onEvent })`)

@@ -196,4 +196,160 @@ export const foldersTools: SyntxTool[] = [
       }
     },
   },
+  {
+    name: 'remove-chats-from-project',
+    description:
+      'Remove one or more chats from a project. Mirrors `syntx.folders.removeChats`. ' +
+      'Inverse of `add-chats-to-project`: sends a bare JSON array of chat UUIDs to ' +
+      '`POST /api/v1/folders/{folder_uuid}/remove`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        folder_uuid: { type: 'string', description: 'Project UUID (required).' },
+        chat_uuids: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 1,
+          uniqueItems: true,
+          description: 'Chat UUIDs to remove. Must contain at least one entry.',
+        },
+      },
+      required: ['folder_uuid', 'chat_uuids'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const folderUuid = String(args.folder_uuid ?? '').trim();
+      if (!folderUuid) {
+        return toMcpError(new Error('"folder_uuid" must be a non-empty string'), 'remove-chats-from-project');
+      }
+
+      const rawChatUuids = args.chat_uuids;
+      if (!Array.isArray(rawChatUuids) || rawChatUuids.length === 0) {
+        return toolError(
+          'remove-chats-from-project: "chat_uuids" must be a non-empty array of chat UUIDs.',
+        );
+      }
+      if (!rawChatUuids.every((c) => typeof c === 'string')) {
+        return toMcpError(
+          new Error('"chat_uuids" must be an array of strings'),
+          'remove-chats-from-project',
+        );
+      }
+      const chatUuids = rawChatUuids.map((c) => c.trim()).filter((c) => c.length > 0);
+      if (chatUuids.length === 0) {
+        return toolError('remove-chats-from-project: "chat_uuids" must contain at least one non-empty UUID.');
+      }
+
+      try {
+        const response = await ctx.syntx.folders.removeChats(folderUuid, chatUuids);
+        if (response === undefined || response === null) {
+          return textResult(
+            `Removed ${chatUuids.length} chat(s) from project ${folderUuid}.`,
+          );
+        }
+        return textResult(JSON.stringify(response, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'remove-chats-from-project');
+      }
+    },
+  },
+  {
+    name: 'update-project',
+    description:
+      'Update a project\'s title and/or color. Mirrors `syntx.folders.update`. ' +
+      'Issues `PATCH /api/v1/folders/{folder_uuid}/change`; only the provided ' +
+      'fields are sent. At least one of `title` / `color` is required.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        folder_uuid: { type: 'string', description: 'Project UUID (required).' },
+        title: { type: 'string', description: 'New project title.' },
+        color: { type: 'string', description: 'New project color (e.g. a CSS hex value like "#9C9C9C").' },
+      },
+      required: ['folder_uuid'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const folderUuid = String(args.folder_uuid ?? '').trim();
+      if (!folderUuid) {
+        return toMcpError(new Error('"folder_uuid" must be a non-empty string'), 'update-project');
+      }
+
+      const data: { title?: string; color?: string } = {};
+      if (args.title !== undefined) {
+        const title = String(args.title).trim();
+        if (!title) {
+          return toMcpError(new Error('"title" must be a non-empty string when provided'), 'update-project');
+        }
+        data.title = title;
+      }
+      if (args.color !== undefined) {
+        const color = String(args.color).trim();
+        if (!color) {
+          return toMcpError(new Error('"color" must be a non-empty string when provided'), 'update-project');
+        }
+        data.color = color;
+      }
+      if (data.title === undefined && data.color === undefined) {
+        return toolError('update-project: provide at least one of "title" or "color".');
+      }
+
+      try {
+        const response = await ctx.syntx.folders.update(folderUuid, data);
+        if (response === undefined || response === null) {
+          return textResult(`Updated project ${folderUuid}.`);
+        }
+        return textResult(JSON.stringify(response, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'update-project');
+      }
+    },
+  },
+  {
+    name: 'reorder-project',
+    description:
+      'Reorder a project within its scope. Mirrors `syntx.folders.move`. ' +
+      'Issues `PATCH /api/v1/folders/{folder_uuid}/move` with `{after_uuid}`. ' +
+      'Pass the UUID of the project to place it after; omit `after_uuid` (or pass null) to move to the top.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        folder_uuid: { type: 'string', description: 'Project UUID (required).' },
+        after_uuid: {
+          type: ['string', 'null'],
+          description: 'UUID of the project to place this one after. Omit or pass null to move to the top.',
+        },
+      },
+      required: ['folder_uuid'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const folderUuid = String(args.folder_uuid ?? '').trim();
+      if (!folderUuid) {
+        return toMcpError(new Error('"folder_uuid" must be a non-empty string'), 'reorder-project');
+      }
+
+      let afterUuid: string | null = null;
+      if (args.after_uuid !== undefined && args.after_uuid !== null) {
+        afterUuid = String(args.after_uuid).trim();
+        if (!afterUuid) {
+          return toMcpError(new Error('"after_uuid" must be a non-empty string or null'), 'reorder-project');
+        }
+      }
+
+      try {
+        const response = await ctx.syntx.folders.move(folderUuid, afterUuid);
+        if (response === undefined || response === null) {
+          return textResult(
+            afterUuid === null
+              ? `Moved project ${folderUuid} to the top.`
+              : `Moved project ${folderUuid} after ${afterUuid}.`,
+          );
+        }
+        return textResult(JSON.stringify(response, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'reorder-project');
+      }
+    },
+  },
 ];

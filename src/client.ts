@@ -279,6 +279,14 @@ export class BaseClient {
     }, false);
   }
 
+  async put<T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
+    return this.requestWithRetry<T>(this.buildUrl(path, params), {
+      method: 'PUT',
+      headers: this.jsonHeaders(),
+      body: body ? JSON.stringify(body) : undefined,
+    }, false);
+  }
+
   async delete<T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
     return this.requestWithRetry<T>(this.buildUrl(path, params), {
       method: 'DELETE',

@@ -26,7 +26,7 @@ Trigger on any of these conditions:
 
 ## Tool inventory — quick reference
 
-The exposed surface is **28 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 release notes](../../CHANGELOG.md) for the full removal list). They cluster into eight surfaces.
+The exposed surface is **38 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 release notes](../../CHANGELOG.md) for the full removal list). They cluster into eight surfaces.
 
 ### Auth (2)
 | Tool | Purpose | Blocking? | Notes |
@@ -47,14 +47,18 @@ The exposed surface is **28 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 | `list-models` | List models with constraints | yes | Source of truth for `model_type` identifiers. |
 | `get-model-info` | Per-model pricing/limits | yes | Required for cost estimation. |
 
-### Chats (10)
+### Chats (14)
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
 | `list-chats` | List existing chats | yes | Filter by `scope` or `search=<title>` for recovery. |
 | `create-chat` | Create persistent chat | yes | Returns `uuid`; safe to call before prompt is final. |
+| `rename-chat` | Rename a chat (`PUT /api/v1/chats/{chat_id}`) | yes | |
 | `get-messages` | Read chat history | yes | Use `direction="newer"` after recovery. |
 | `get-inprogress` | Active in-progress generations for a chat | yes | Used internally by `wait-for-response` to gate on prior requests — surface for recovery after interrupted generations. |
 | `get-favorite-messages` | Starred/bookmarked messages for a chat | yes | Only way to read starred messages through MCP — `get-messages` does not include them. |
+| `toggle-chat-favorite` | Toggle the favorite flag of a chat | yes | **Toggle** — each call flips the state; verify via `list-chats`. |
+| `toggle-message-favorite` | Toggle the favorite flag of a message | yes | **Toggle** — each call flips the state; read via `get-favorite-messages`. |
+| `delete-message` | Permanently delete a single message | yes | Destructive — confirm before invoking. Path has no chat id: `chats/messages/{message_id}`. |
 | `delete-chat` | Permanently delete a chat | yes | Destructive — confirm before invoking. |
 | `send-message` | Append user message | no | Pairs with `wait-for-response`. |
 | `wait-for-response` | Block for assistant reply | yes | Use after `send-message`. |
@@ -77,12 +81,15 @@ The exposed surface is **28 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 | `generate-video` | Video generation | yes | Requires target `chat_id` (note: `chat_id`, not `chat_uuid`). |
 | — | — | — | — |
 
-### Projects (4) — `syntx://folders`
+### Projects (7) — `syntx://folders`
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
 | `list-projects` | List projects for a scope (`text` / `image` / `video` / `audio`) | yes | |
 | `create-project` | Create a project and optionally seed it with chats | yes | |
 | `add-chats-to-project` | Add chats to an existing project | yes | |
+| `remove-chats-from-project` | Remove chats from a project | yes | Inverse of `add-chats-to-project`. |
+| `update-project` | Update a project's title and/or color | yes | At least one of `title` / `color` required. |
+| `reorder-project` | Reorder a project within its scope | yes | `after_uuid` omitted/null = move to top. |
 | `delete-project` | Permanently delete a project | yes | Destructive — confirm before invoking. |
 
 For full per-tool schemas, rely on MCP `tools/list` — they are the source of truth.

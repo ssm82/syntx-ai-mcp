@@ -563,6 +563,137 @@ export const chatsTools: SyntxTool[] = [
       }
     },
   },
+  {
+    name: 'rename-chat',
+    description:
+      'Rename a chat. Mirrors `syntx.chats.rename`. Issues ' +
+      '`PUT /api/v1/chats/{chat_id}` with body `{title}`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chat_id: { type: 'string', description: 'Chat UUID or numeric id (required).' },
+        title: { type: 'string', description: 'New chat title (required).' },
+      },
+      required: ['chat_id', 'title'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const chatId = String(args.chat_id ?? '').trim();
+      if (!chatId) {
+        return toMcpError(new Error('"chat_id" must be a non-empty string'), 'rename-chat');
+      }
+      const title = String(args.title ?? '').trim();
+      if (!title) {
+        return toMcpError(new Error('"title" must be a non-empty string'), 'rename-chat');
+      }
+
+      try {
+        const response = await ctx.syntx.chats.rename(chatId, title);
+        if (response === undefined || response === null) {
+          return textResult(`Renamed chat ${chatId} to "${title}".`);
+        }
+        return textResult(JSON.stringify(response, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'rename-chat');
+      }
+    },
+  },
+  {
+    name: 'delete-message',
+    description:
+      'Permanently delete a single message. Mirrors `syntx.chats.deleteMessage`. ' +
+      'Issues `DELETE /api/v1/chats/messages/{message_id}` (no chat id in the path). ' +
+      'This action is destructive and cannot be undone.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message_id: { type: 'string', description: 'Message id to delete (required).' },
+      },
+      required: ['message_id'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const messageId = String(args.message_id ?? '').trim();
+      if (!messageId) {
+        return toMcpError(new Error('"message_id" must be a non-empty string'), 'delete-message');
+      }
+
+      try {
+        await ctx.syntx.chats.deleteMessage(messageId);
+        return textResult(`Deleted message ${messageId}.`);
+      } catch (err) {
+        return toMcpError(err, 'delete-message');
+      }
+    },
+  },
+  {
+    name: 'toggle-chat-favorite',
+    description:
+      'Toggle the favorite (bookmark) flag of a chat. Mirrors `syntx.chats.toggleFavorite`. ' +
+      'Issues `POST /api/v1/chats/{chat_id}/favorite` (no body). Each call flips the ' +
+      'current state — favorited becomes unfavorited and vice versa; verify the result via `list-chats`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chat_id: { type: 'string', description: 'Chat UUID or numeric id (required).' },
+      },
+      required: ['chat_id'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const chatId = String(args.chat_id ?? '').trim();
+      if (!chatId) {
+        return toMcpError(new Error('"chat_id" must be a non-empty string'), 'toggle-chat-favorite');
+      }
+
+      try {
+        const response = await ctx.syntx.chats.toggleFavorite(chatId);
+        if (response === undefined || response === null) {
+          return textResult(`Toggled favorite flag of chat ${chatId}.`);
+        }
+        return textResult(JSON.stringify(response, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'toggle-chat-favorite');
+      }
+    },
+  },
+  {
+    name: 'toggle-message-favorite',
+    description:
+      'Toggle the favorite (bookmark) flag of a single message. Mirrors ' +
+      '`syntx.chats.toggleMessageFavorite`. Issues ' +
+      '`POST /api/v1/chats/{chat_id}/messages/{message_id}/favorite` (no body). ' +
+      'Each call flips the current state; favorites are readable via `get-favorite-messages`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chat_id: { type: 'string', description: 'Chat UUID or numeric id (required).' },
+        message_id: { type: 'string', description: 'Message id (required).' },
+      },
+      required: ['chat_id', 'message_id'],
+      additionalProperties: false,
+    },
+    async handler(args, ctx) {
+      const chatId = String(args.chat_id ?? '').trim();
+      if (!chatId) {
+        return toMcpError(new Error('"chat_id" must be a non-empty string'), 'toggle-message-favorite');
+      }
+      const messageId = String(args.message_id ?? '').trim();
+      if (!messageId) {
+        return toMcpError(new Error('"message_id" must be a non-empty string'), 'toggle-message-favorite');
+      }
+
+      try {
+        const response = await ctx.syntx.chats.toggleMessageFavorite(chatId, messageId);
+        if (response === undefined || response === null) {
+          return textResult(`Toggled favorite flag of message ${messageId} in chat ${chatId}.`);
+        }
+        return textResult(JSON.stringify(response, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'toggle-message-favorite');
+      }
+    },
+  },
 ];
 
 /**

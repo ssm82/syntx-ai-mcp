@@ -67,7 +67,7 @@
 
 | Группа | Что входит |
 |---|---|
-| 🛠️ **28 инструментов** | Идентификация, runtime-настройки, чаты, генерация (изображения + транскрипция), каталог, аккаунт, файлы, проекты (папки) |
+| 🛠️ **38 инструментов** | Идентификация, runtime-настройки, чаты, генерация (изображения + транскрипция), каталог, аккаунт, файлы, проекты (папки) |
 | 📄 **6 ресурсов** + 1 шаблон | `syntx://models`, `syntx://plans`, `syntx://user/me`, … |
 | 💡 **4 промпт-шаблона** | generate-landing, summarize-chat, translate, code-review |
 | 🔌 **2 транспорта** | stdio (по умолчанию) и stateless HTTP/SSE |
@@ -294,7 +294,7 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 
 ## Инструменты (Tools)
 
-Все 25 инструментов принимают JSON-аргументы и возвращают структурированный результат. Текстовые ответы — это JSON-снимки данных API; ошибки возвращаются с `isError: true` (без обрыва канала).
+Все 38 инструментов принимают JSON-аргументы и возвращают структурированный результат. Текстовые ответы — это JSON-снимки данных API; ошибки возвращаются с `isError: true` (без обрыва канала).
 
 ### Идентификация и токен
 
@@ -356,12 +356,16 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 |---|---|---|
 | `list-chats` | Список чатов с фильтрами | `scope?`, `search?`, `direction?`, `page_size?` |
 | `create-chat` | Создать чат (обязателен `title`) | `title`*, `scope?`, `model?` |
+| `rename-chat` | Переименовать чат (`PUT /api/v1/chats/{chat_id}`) | `chat_id`*, `title`* |
 | `get-messages` | История сообщений чата | `chat_id`*, `page_size?`, `direction?` |
 | `send-message` | Отправить промпт с опциональными вложениями, вернуть ack (ответ — асинхронно) | `chat_id`*, `prompt`*, `ai_name?`, `model_type?`, `attachments?` |
 | `wait-for-response` | Дождаться завершения генерации и вернуть текст + media-объекты | `chat_id`*, `timeout?`, `poll_interval?` |
 | `ask` ⭐ | One-shot: создать чат → отправить → дождаться ответа | `prompt`*, `title?`, `ai_name?`, `model_type?`, `scope?`, `timeout?`, `poll_interval?`, `mode?` |
 | `stream-message` 🌊 | One-shot со стримингом ответа по SSE (`sse.syntx.ai`) + `notifications/progress` | `prompt`*, `scope?`, `model?`, `ai_name?`, `model_type?`, `timeout?`, `mode?` |
 | `cancel-message` | Отменить in-flight генерацию сообщения | `chat_id`*, `message_id`* |
+| `delete-message` | Удалить отдельное сообщение (`DELETE /api/v1/chats/messages/{message_id}` — без chat id в пути); деструктивно | `message_id`* |
+| `toggle-chat-favorite` | Переключить флаг «избранное» чата: каждый вызов инвертирует состояние; проверить через `list-chats` | `chat_id`* |
+| `toggle-message-favorite` | Переключить флаг «избранное» сообщения: каждый вызов инвертирует состояние; читать через `get-favorite-messages` | `chat_id`*, `message_id`* |
 | `get-llm-limits` | Текущие LLM-лимиты (окна 6h / 7d) | — |
 | `generate-title` | Авто-заголовок для чата | `chat_uuid`* |
 
@@ -517,6 +521,9 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 |---|---|---|
 | `create-project` | Создать проект (a.k.a. папку) на syntx.ai; опционально сразу добавить чаты. | `title`*, `scope?` (`text` по умолчанию), `color?` (`#9C9C9C` по умолчанию), `chat_uuids?` |
 | `add-chats-to-project` | Добавить один или несколько существующих чатов в проект (`POST /api/v1/folders/{folder_uuid}/add`). | `folder_uuid`*, `chat_uuids`* (≥ 1, `uniqueItems`) |
+| `remove-chats-from-project` | Убрать чаты из проекта (`POST /api/v1/folders/{folder_uuid}/remove`, bare-массив UUID). | `folder_uuid`*, `chat_uuids`* (≥ 1, `uniqueItems`) |
+| `update-project` | Изменить название и/или цвет проекта (`PATCH /api/v1/folders/{folder_uuid}/change`); отправляются только указанные поля. | `folder_uuid`*, `title?`, `color?` (хотя бы один) |
+| `reorder-project` | Изменить порядок проекта (`PATCH /api/v1/folders/{folder_uuid}/move`); `after_uuid` опущен или `null` — переместить наверх. | `folder_uuid`*, `after_uuid?` |
 | `delete-project` | Удалить проект без возможности восстановления (`DELETE /api/v1/folders/{folder_uuid}/delete`). | `folder_uuid`* |
 
 > Серверная терминология — `folders`. В продукте это «проекты», в SDK — `syntx.folders.create` / `syntx.folders.addChats`.

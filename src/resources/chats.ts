@@ -697,6 +697,66 @@ export class ChatsResource {
   }
 
   /**
+   * Rename a chat.
+   *
+   * `PUT /api/v1/chats/{chatId}` with body `{title}`.
+   *
+   * Mirrors the syntx.ai sessions store (SPA app bundle:
+   * `fe.put(\`chats/${h}\`,{title:c})`). The response body is ignored by
+   * the SPA; the raw upstream response is passed through unpinned.
+   */
+  async rename(chatId: string, title: string): Promise<unknown> {
+    return this.client.put<unknown>(`/api/v1/chats/${encodeURIComponent(chatId)}`, { title });
+  }
+
+  /**
+   * Toggle the favorite (bookmark) flag of a chat.
+   *
+   * `POST /api/v1/chats/{chatId}/favorite` — no request body.
+   *
+   * Mirrors the syntx.ai sessions store (SPA app bundle:
+   * `fe.post(\`chats/${h}/favorite\`)`). The endpoint is a **toggle**:
+   * every call flips `chat.is_favorite`. The response body is ignored by
+   * the SPA; verify the resulting state via `list`.
+   */
+  async toggleFavorite(chatId: string): Promise<unknown> {
+    return this.client.post<unknown>(`/api/v1/chats/${encodeURIComponent(chatId)}/favorite`);
+  }
+
+  /**
+   * Toggle the favorite (bookmark) flag of a single message.
+   *
+   * `POST /api/v1/chats/{chatId}/messages/{messageId}/favorite` — no
+   * request body.
+   *
+   * Mirrors the syntx.ai SPA (app bundle:
+   * `G.post(\`chats/${k}/messages/${h}/favorite\`)`). The endpoint is a
+   * **toggle**: every call flips `message.is_favorite`. The response body
+   * is ignored by the SPA; favorites are readable via
+   * `getFavoriteMessages`.
+   */
+  async toggleMessageFavorite(chatId: string, messageId: string): Promise<unknown> {
+    return this.client.post<unknown>(
+      `/api/v1/chats/${encodeURIComponent(chatId)}/messages/${encodeURIComponent(messageId)}/favorite`,
+    );
+  }
+
+  /**
+   * Delete a single message.
+   *
+   * `DELETE /api/v1/chats/messages/{messageId}` — note the path has **no
+   * chatId segment** (the only message-deletion shape observed across the
+   * SPA bundles: `G.delete(\`chats/messages/${h}\`)`; ids are numeric in
+   * the SPA, strings here).
+   *
+   * Unlike {@link cancelMessage}, a 404 is not swallowed — it propagates
+   * as `SyntxAPIError { status: 404 }`.
+   */
+  async deleteMessage(messageId: string): Promise<void> {
+    await this.client.delete(`/api/v1/chats/messages/${encodeURIComponent(messageId)}`);
+  }
+
+  /**
    * Cancel an in-flight message generation.
    *
    * `POST /api/v1/chats/{chatId}/messages/{messageId}/cancel`

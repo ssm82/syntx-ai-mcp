@@ -170,7 +170,7 @@ The image is attached to the chat history and visible via `get-messages(chat_id=
 
 ## Destructive tool used by accident
 
-**Symptom:** `delete-file` / `delete-project` / `add-chats-to-project` was invoked unintentionally.
+**Symptom:** `delete-file` / `delete-project` / `add-chats-to-project` / `delete-message` was invoked unintentionally.
 
 **Cause:** Tool name does not telegraph destructive intent strongly enough. Always read the tool description carefully before invoking.
 
