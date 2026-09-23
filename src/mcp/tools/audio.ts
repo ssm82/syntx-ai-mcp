@@ -171,6 +171,24 @@ export const audioTools: SyntxTool[] = [
         voice_id: { type: 'string', description: 'Voice identifier for TTS models (e.g. ElevenLabs voice_id).' },
         model_type: { type: 'string', description: 'Model identifier within the provider.' },
         duration: { type: 'number', minimum: 0, description: 'Target duration in seconds (music/clip models).' },
+        chars_count: {
+          type: 'number',
+          description:
+            'Character count for TTS cost (elevenlabs; required in get_model_info for ' +
+            'text_to_speech/text_to_dialogue modes). Flat top-level alias for the ' +
+            'same-named `settings` key.',
+        },
+        mode: {
+          type: 'string',
+          description:
+            'Generation mode. ElevenLabs: "text_to_speech" | "text_to_dialogue" | ' +
+            '"speech_to_speech". Flat top-level alias for the same-named `settings` key.',
+        },
+        version: {
+          type: 'string',
+          description:
+            'Model version (suno: "V6"). Flat top-level alias for the same-named `settings` key.',
+        },
         sample_rate: {
           type: 'number',
           description: 'Sample rate override in Hz (e.g. 22050, 44100).',
@@ -211,6 +229,9 @@ export const audioTools: SyntxTool[] = [
         if (args.duration !== undefined) settings.duration = Number(args.duration);
         if (args.sample_rate !== undefined) settings.sample_rate = Number(args.sample_rate);
         if (args.style_prompt !== undefined) settings.prompt = String(args.style_prompt);
+        if (args.chars_count !== undefined) settings.chars_count = Number(args.chars_count);
+        if (args.mode !== undefined) settings.mode = String(args.mode);
+        if (args.version !== undefined) settings.version = String(args.version);
 
         const modelSettings = args.model_settings;
         if (modelSettings !== undefined && modelSettings !== null) {

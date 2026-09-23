@@ -153,6 +153,110 @@ test('generate-image forwards a clean payload to the SDK', async () => {
   assert.deepEqual(params.settings.image_url, ['https://r2.syntx.ai/x.png']);
 });
 
+test('generate-image forwards flat image_size / aspect_ratio into settings (banana path)', async () => {
+  const calls: Array<{ aiName: string; params: unknown }> = [];
+  const ctx = {
+    syntx: {
+      design: {
+        generate: async (aiName: string, params: unknown) => {
+          calls.push({ aiName, params });
+          return { id: 1 };
+        },
+      },
+    },
+    config: {},
+  } as unknown as McpContext;
+  const tool = designTools.find((t) => t.name === 'generate-image');
+  if (!tool) throw new Error('generate-image tool not found');
+
+  await tool.handler(
+    {
+      chat_uuid: 'c',
+      prompt: 'p',
+      ai_name: 'banana',
+      model_type: 'banana3',
+      image_size: '1K',
+      aspect_ratio: '3:4',
+    },
+    ctx,
+  );
+  const params = calls[0].params as { settings: Record<string, unknown> };
+  assert.equal(params.settings.image_size, '1K');
+  assert.equal(params.settings.aspect_ratio, '3:4');
+  assert.equal(params.settings.model_type, 'banana3');
+});
+
+test('generate-image forwards flat details_quality into settings (sora-images gpt-image-2 path)', async () => {
+  const calls: Array<{ aiName: string; params: unknown }> = [];
+  const ctx = {
+    syntx: {
+      design: {
+        generate: async (aiName: string, params: unknown) => {
+          calls.push({ aiName, params });
+          return { id: 2 };
+        },
+      },
+    },
+    config: {},
+  } as unknown as McpContext;
+  const tool = designTools.find((t) => t.name === 'generate-image');
+  if (!tool) throw new Error('generate-image tool not found');
+
+  await tool.handler(
+    {
+      chat_uuid: 'c',
+      prompt: 'p',
+      ai_name: 'sora-images',
+      model_type: 'gpt-image-2',
+      quality: '1K',
+      details_quality: 'high',
+    },
+    ctx,
+  );
+  const params = calls[0].params as { settings: Record<string, unknown> };
+  assert.equal(params.settings.quality, '1K');
+  assert.equal(params.settings.details_quality, 'high');
+  assert.equal(params.settings.model_type, 'gpt-image-2');
+});
+
+test('generate-image forwards batch_size / ref_count / size / version / rendering_speed into settings', async () => {
+  const calls: Array<{ aiName: string; params: unknown }> = [];
+  const ctx = {
+    syntx: {
+      design: {
+        generate: async (aiName: string, params: unknown) => {
+          calls.push({ aiName, params });
+          return { id: 3 };
+        },
+      },
+    },
+    config: {},
+  } as unknown as McpContext;
+  const tool = designTools.find((t) => t.name === 'generate-image');
+  if (!tool) throw new Error('generate-image tool not found');
+
+  await tool.handler(
+    {
+      chat_uuid: 'c',
+      prompt: 'p',
+      ai_name: 'grok_image',
+      model_type: 'grok_imagine_2',
+      batch_size: 2,
+      ref_count: 3,
+      size: '1K',
+      version: 'lora',
+      rendering_speed: 'TURBO',
+    },
+    ctx,
+  );
+  const params = calls[0].params as { settings: Record<string, unknown> };
+  assert.equal(params.settings.batch_size, 2);
+  assert.equal(params.settings.ref_count, 3);
+  assert.equal(params.settings.size, '1K');
+  assert.equal(params.settings.version, 'lora');
+  assert.equal(params.settings.rendering_speed, 'TURBO');
+});
+
 test('generate-image forwards model_settings to the SDK', async () => {
   const calls: Array<{ params: unknown }> = [];
   const ctx = {

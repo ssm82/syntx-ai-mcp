@@ -115,6 +115,40 @@ test('generate-audio forwards a clean settings + file_urls payload', async () =>
   });
 });
 
+test('generate-audio forwards chars_count / mode / version into settings', async () => {
+  const calls: Array<{ params: unknown }> = [];
+  const ctx = {
+    syntx: {
+      audio: {
+        generate: async (_aiName: string, params: unknown) => {
+          calls.push({ params });
+          return { id: 1 };
+        },
+      },
+    },
+    config: {},
+  } as unknown as McpContext;
+  const tool = audioTools.find((t) => t.name === 'generate-audio');
+  if (!tool) throw new Error('generate-audio tool not found');
+
+  await tool.handler(
+    {
+      chat_uuid: 'c',
+      prompt: 'p',
+      ai_name: 'elevenlabs',
+      model_type: 'eleven_v3',
+      chars_count: 500,
+      mode: 'text_to_speech',
+      version: 'V6',
+    },
+    ctx,
+  );
+  const params = calls[0].params as { settings: Record<string, unknown> };
+  assert.equal(params.settings.chars_count, 500);
+  assert.equal(params.settings.mode, 'text_to_speech');
+  assert.equal(params.settings.version, 'V6');
+});
+
 test('generate-audio omits file_urls when not provided', async () => {
   const calls: Array<{ params: unknown }> = [];
   const ctx = {

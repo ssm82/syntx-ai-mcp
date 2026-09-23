@@ -239,6 +239,16 @@ test('sora-images keeps quality / details_quality for gpt-image-2', () => {
   assert.equal(s.details_quality, 'high');
 });
 
+test('sora-images keeps quality / details_quality for the gpt-image-2.5 line', () => {
+  for (const mt of ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare']) {
+    const s: Settings = { quality: '1K', details_quality: 'high', ref_count: 2 };
+    applyProviderRules('sora-images', s, { modelType: mt }, 'after');
+    assert.equal(s.quality, '1K', `${mt}: quality must survive`);
+    assert.equal(s.details_quality, 'high', `${mt}: details_quality must survive`);
+    assert.equal(s.ref_count, 2, `${mt}: ref_count must survive`);
+  }
+});
+
 // ── wan_image ──────────────────────────────────────────────────────────────
 
 test('wan_image coerces 4K → 2K for wan-2.7-pro when files are attached', () => {

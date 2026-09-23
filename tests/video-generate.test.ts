@@ -189,7 +189,57 @@ test('generate-video omits file_urls and audio_url when not provided', async () 
   assert.deepEqual(params.settings, {});
 });
 
-test('generate-video drops empty-string audio_url before forwarding', async () => {
+test('generate-video forwards cost-param fields into settings (kling/veo3 shapes)', async () => {
+  const calls: Array<{ params: unknown }> = [];
+  const ctx = {
+    syntx: {
+      video: {
+        generate: async (_aiName: string, params: unknown) => {
+          calls.push({ params });
+          return { id: 1 };
+        },
+      },
+    },
+    config: {},
+  } as unknown as McpContext;
+  const tool = videoTools.find((t) => t.name === 'generate-video');
+  if (!tool) throw new Error('generate-video tool not found');
+
+  await tool.handler(
+    {
+      chat_id: 'chat-cost-params',
+      prompt: 'p',
+      ai_name: 'kling',
+      model_type: 'kling_text2video',
+      video_duration: '5',
+      mode: 'standart',
+      version: '1.6',
+      native_audio: true,
+      generate_audio: false,
+      draft: true,
+      upscale: 0,
+      gen_type: 'mcv',
+      ref_count: 2,
+      frame_rate: 24,
+      size: '16:9',
+    },
+    ctx,
+  );
+  const params = calls[0].params as { settings: Record<string, unknown> };
+  assert.equal(params.settings.video_duration, '5', 'video_duration must pass through verbatim (string enums)');
+  assert.equal(params.settings.mode, 'standart');
+  assert.equal(params.settings.version, '1.6');
+  assert.equal(params.settings.native_audio, true);
+  assert.equal(params.settings.generate_audio, false);
+  assert.equal(params.settings.draft, true);
+  assert.equal(params.settings.upscale, 0);
+  assert.equal(params.settings.gen_type, 'mcv');
+  assert.equal(params.settings.ref_count, 2);
+  assert.equal(params.settings.frame_rate, 24);
+  assert.equal(params.settings.size, '16:9');
+});
+
+test('generate-video omits file_urls and audio_url when not provided', async () => {
   const calls: Array<{ params: unknown }> = [];
   const ctx = {
     syntx: {
