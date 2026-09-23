@@ -159,17 +159,102 @@ export const aiTools: SyntxTool[] = [
   },
   {
     name: 'get-model-info',
-    description: 'Return detailed information about a specific AI model (pricing/cost params, limits).',
+    description:
+      'Return detailed information about a specific AI model (pricing/cost params, limits). ' +
+      'Providers whose catalog declares `get_cost_params` reject the request with 400 until ' +
+      'the listed params are supplied — every `get_cost_params` field is accepted here as a ' +
+      'flat top-level argument (see per-field descriptions for provider-specific enums).',
     inputSchema: {
       type: 'object',
       properties: {
         ai_name: { type: 'string', description: 'AI service name, e.g. "chatgpt".' },
         model_type: { type: 'string', description: 'Model identifier, e.g. "gpt-5-mini".' },
         batch_size: { type: 'number' },
-        quality: { type: 'string' },
+        quality: {
+          type: 'string',
+          description:
+            'Quality/size tier. For sora-images gpt-image-2 the API validates it as ' +
+            '"1K" | "2K" | "4K" (NOT low/medium/high).',
+        },
         video_duration: { type: 'number' },
         chars_count: { type: 'number' },
         mode: { type: 'string' },
+        image_size: {
+          type: 'string',
+          description:
+            'Image size tier, e.g. "1K", "2K", "4K". Required (in the query string) by ' +
+            'providers with `get_cost_params: ["image_size"]` — banana / banana2 / banana3, ' +
+            'seedream. Exposed flat because some MCP clients cannot pass nested objects reliably.',
+        },
+        details_quality: {
+          type: 'string',
+          description:
+            'Details level (sora-images gpt-image-2: "high" confirmed; grok_imagine_2: ' +
+            '"low" | "medium"). Required by /api/v2/get_model_info together with quality ' +
+            'for that provider.',
+        },
+        resolution: {
+          type: 'string',
+          description:
+            'Output resolution. Enum is per-provider, e.g. wan_video "720P"|"1080P", ' +
+            'grok_image "1k"|"2k", hailuo-minimax "512p"|"768p"|"1080p"|"2K" (per model), ' +
+            'topaz_astra/beeble "1920x1080"|"3840x2160". An invalid value yields a 400 ' +
+            'listing the valid options.',
+        },
+        ref_count: {
+          type: 'number',
+          description:
+            'Reference image count (sora-images gpt-image-2.5-*, grok_imagine_2, hailuo-3.0).',
+        },
+        size: {
+          type: 'string',
+          description:
+            'Size tier. wan_image models use "1K"; seedance uses aspect ratios ' +
+            '("21:9", "16:9", "9:16", "1:1", "4:3", "3:4", "adaptive").',
+        },
+        duration: {
+          type: 'number',
+          description: 'Duration in seconds (seedance-2.x, wan_2x r2v/videoedit, heygen, elevenlabs sts).',
+        },
+        frame_rate: {
+          type: 'number',
+          description: 'Frame rate (topaz_astra, beeble switchx).',
+        },
+        version: {
+          type: 'string',
+          description:
+            'Model version (kling: "1.5"…"3.0"; kling_motion_control also "standart"|"hd"; suno: "V6").',
+        },
+        native_audio: {
+          type: 'boolean',
+          description: 'Native audio flag (kling, wan_26 i2v/r2v flash).',
+        },
+        generate_audio: {
+          type: 'boolean',
+          description: 'Generate audio track (seedance-1.5-pro).',
+        },
+        draft: {
+          type: 'boolean',
+          description: 'Draft mode (flux3_video).',
+        },
+        upscale: {
+          type: 'number',
+          description: 'Upscale flag as INTEGER 0|1 (veo3 family; the API rejects non-integers).',
+        },
+        gen_type: {
+          type: 'string',
+          description: 'Generation type for kling_motion_control ("mcv" | "mci").',
+        },
+        width: { type: 'number', description: 'Target width (magnific).' },
+        height: { type: 'number', description: 'Target height (magnific).' },
+        scale_factor: {
+          type: 'string',
+          description: 'Upscale factor (magnific): "2x" | "4x" | "8x" | "16x".',
+        },
+        rendering_speed: {
+          type: 'string',
+          description: 'Rendering speed (ideogram), e.g. "TURBO".',
+        },
       },
       required: ['ai_name', 'model_type'],
       additionalProperties: false,
@@ -182,9 +267,26 @@ export const aiTools: SyntxTool[] = [
           model_type: string;
           batch_size?: number;
           quality?: string;
-          video_duration?: number;
+          video_duration?: number | string;
           chars_count?: number;
           mode?: string;
+          image_size?: string;
+          details_quality?: string;
+          resolution?: string;
+          ref_count?: number;
+          size?: string;
+          duration?: number | string;
+          frame_rate?: number;
+          version?: string;
+          native_audio?: boolean;
+          generate_audio?: boolean;
+          draft?: boolean;
+          upscale?: number;
+          gen_type?: string;
+          width?: number;
+          height?: number;
+          scale_factor?: string;
+          rendering_speed?: string;
         },
         ctx,
       ) =>
@@ -196,6 +298,23 @@ export const aiTools: SyntxTool[] = [
           video_duration: args.video_duration,
           chars_count: args.chars_count,
           mode: args.mode,
+          image_size: args.image_size,
+          details_quality: args.details_quality,
+          resolution: args.resolution,
+          ref_count: args.ref_count,
+          size: args.size,
+          duration: args.duration,
+          frame_rate: args.frame_rate,
+          version: args.version,
+          native_audio: args.native_audio,
+          generate_audio: args.generate_audio,
+          draft: args.draft,
+          upscale: args.upscale,
+          gen_type: args.gen_type,
+          width: args.width,
+          height: args.height,
+          scale_factor: args.scale_factor,
+          rendering_speed: args.rendering_speed,
         }),
     ),
   },

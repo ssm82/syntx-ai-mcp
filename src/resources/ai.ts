@@ -6,7 +6,8 @@ export interface GetModelInfoParams {
   model_type: string;
   batch_size?: number;
   quality?: string;
-  video_duration?: number;
+  /** Some providers validate this as a string enum (e.g. sora: "4"…"25"), others as a number. */
+  video_duration?: number | string;
   chars_count?: number;
   mode?: string;
   [key: string]: string | number | boolean | undefined;

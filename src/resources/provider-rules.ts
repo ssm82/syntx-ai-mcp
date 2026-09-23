@@ -186,7 +186,9 @@ const seedreamImageRule: ProviderRule = {
 const soraImagesRule: ProviderRule = {
   aiName: 'sora-images',
   afterMerge(s, ctx) {
-    if (ctx.modelType !== 'gpt-image-2') {
+    // gpt-image-2 AND the 2.5 line (sunburst, flare) all require quality +
+    // details_quality (catalog get_cost_params; the 2.5s also ref_count).
+    if (!/^gpt-image-2/.test(ctx.modelType)) {
       drop(s, 'quality');
       drop(s, 'details_quality');
     }
