@@ -26,7 +26,7 @@ Trigger on any of these conditions:
 
 ## Tool inventory — quick reference
 
-The exposed surface is **38 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 release notes](../../CHANGELOG.md) for the full removal list). They cluster into eight surfaces.
+The exposed surface is **37 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 release notes](../../CHANGELOG.md) for the full removal list). They cluster into eight surfaces.
 
 ### Auth (2)
 | Tool | Purpose | Blocking? | Notes |
@@ -45,7 +45,6 @@ The exposed surface is **38 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 |---|---|---|---|
 | `list-ai-services` | List syntx.ai providers | yes | Use to discover `ai_name` values. |
 | `list-models` | List models with constraints | yes | Source of truth for `model_type` identifiers. |
-| `get-model-info` | Per-model pricing/limits | yes | Required for cost estimation. |
 
 ### Chats (16)
 | Tool | Purpose | Blocking? | Notes |
@@ -113,7 +112,6 @@ Discovery workflow before any model-sensitive call:
 
 1. `list-ai-services` → pick `ai_name`.
 2. `list-models(ai_name=<picked>)` → copy `value` field of desired model into `model_type`.
-3. Optional: `get-model-info(ai_name, model_type)` → confirm pricing / limit params before sending large payloads.
 
 ## Chat lifecycle — three patterns
 
@@ -250,7 +248,7 @@ Verification flow:
 2. `whoami` → returns `{ authenticated, user }`. Never errors on missing/invalid token — reports `authenticated: false`. Use this for liveness checks.
 3. `get-profile` → returns the full profile and raises an MCP error when no token is set. Use this when you want a hard failure on missing auth rather than a non-erroring report.
 
-The legacy `SyntxWebSocket` class used to send tokens in URL query strings. It is `@deprecated` and tokens must never appear in URL parameters. Use `ask` / `send-message` only.
+The `SyntxWebSocket` class was removed in v0.4.0; the syntx.ai API never exposed a functional WSS endpoint. Use `ask` / `send-message` only.
 
 ## Security caveats — summary
 
@@ -262,7 +260,7 @@ Five MCP surfaces require care when the MCP server runs over HTTP transport:
 | `transcribe` with `path` parameter | Same LFI class | Already guarded by `transport !== 'stdio'` check — use the same pattern when extending. |
 | `whoami` / `User`-returning tools | Leaks `chatwoot_hmac`, `ym_client_id` internal identifiers | Never log raw `User` payloads. Sanitize before publishing. |
 | `set-token` over HTTP | Will be restricted in v0.2.1 to localhost-only callers | Set `SYNTX_TOKEN` via env in production HTTP deployments. |
-| `SyntxWebSocket` (`@deprecated`) | Bearer token in URL query | Do not use. All current use cases are covered by `ask` / `send-message` / `stream-message`. |
+| `SyntxWebSocket` (removed in v0.4.0) | Bearer token in URL query | N/A — module removed. All current use cases are covered by `ask` / `send-message` / `stream-message`. |
 
 Full audit, threat model, and remediation roadmap live in [`references/security-caveats.md`](references/security-caveats.md).
 

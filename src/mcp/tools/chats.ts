@@ -1,4 +1,4 @@
-import type { SyntxTool, McpContext } from '../registry';
+import type { SyntxTool } from '../registry';
 import { textResult, toMcpError } from '../errors';
 import { wrapSdk, jsonOrAck } from './_helpers';
 import { SyntxAPIError } from '../../errors';
@@ -6,11 +6,14 @@ import { SyntxAPIError } from '../../errors';
 /**
  * Chat & messaging tools — the primary conversational surface of the server.
  *
- * Two interaction models are exposed:
+ * All text-scope interactions go through the `llm/*` text-flow (SSE primary
+ * with REST polling fallback). The legacy `chats/{id}/messages` write path
+ * (`objects[]` with `model_type`) was removed in v0.4.0.
+ *
+ * Three interaction models are exposed:
  *  - `send-message`: fire-and-forget (returns an ack). Pair with `wait-for-response`.
  *  - `ask`: one-shot — sends a prompt and blocks until the assistant reply completes.
- *  - `stream-message`: one-shot with real-time token delivery via WSS
- *    (see the `streamMode` server config and the optional `mode` argument).
+ *  - `stream-message`: one-shot with SSE streaming + per-chunk `notifications/progress`.
  */
 export const chatsTools: SyntxTool[] = [
   {
@@ -167,10 +170,9 @@ export const chatsTools: SyntxTool[] = [
         const chatId = String(args.chat_id);
 
         // Pre-flight existence check: `llm/generate` happily accepts a stale
-        // (e.g. soft-deleted) chat_uuid and silently creates a floating job;
-        // `chats/{id}/messages` likewise returns 4xx for missing chats but only
-        // after a round-trip + side-effects. Validating up front lets us return
-        // a clear `chat_not_found` error before any generation work.
+        // (e.g. soft-deleted) chat_uuid and silently creates a floating job.
+        // Validating up front lets us return a clear `chat_not_found` error
+        // before any generation work.
         if (!(await ctx.syntx.chats.exists(chatId))) {
           throw new SyntxAPIError(
             `Chat ${chatId} not found. Use chat-exists to validate before sending, or list-chats to find a valid id.`,
@@ -179,48 +181,33 @@ export const chatsTools: SyntxTool[] = [
           );
         }
 
-        const flow = routeTextFlow(ctx, { scope: 'text' });
-        if (flow && attachments.length === 0) {
-          // Modern text-flow: `llm/generate` with `chat_uuid` binds the
-          // assistant reply to this chat. Live SPA capture (2026-09-21):
-          //   body: { chat_uuid, text, model, ... }
-          await ctx.syntx.llm.generate({
-            prompt: String(args.prompt),
-            aiName,
-            modelType,
-            chatUuid: chatId,
-          });
-          return textResult(
-            `Message sent to chat ${chatId}. Use "wait-for-response" or "get-messages" to read the reply.`,
-          );
-        }
+        // Map MCP `attachments` (richer shape, with optional filename/mime_type)
+        // to the SPA's canonical `files[]` field — see live `text.js` → `Le()`.
+        // `object_type` is `'image'` when the MCP caller hints `type === 'image'`
+        // or the MIME is image/*; everything else is `'file'`.
+        const files = attachments.map((att) => {
+          const mimeCategory = att.mime_type?.split('/', 1)[0]?.toLowerCase();
+          const category = att.type ?? mimeCategory;
+          return {
+            object_type: category === 'image' ? 'image' as const : 'file' as const,
+            object_url: att.url,
+          };
+        });
 
-        // Legacy path: `chats/{id}/messages` with attachments (the legacy
-        // endpoint is the only one that accepts file attachments).
-        const objects = [
-          {
-            object_type: 'text',
-            object_url: null,
-            object_text: String(args.prompt),
-            model_type: modelType,
-          },
-          ...attachments.map((attachment) => {
-            const mimeCategory = attachment.mime_type?.split('/', 1)[0]?.toLowerCase();
-            const category = attachment.type ?? mimeCategory;
-            const objectType = category === 'image' || category === 'video' || category === 'audio'
-              ? category
-              : 'filetext';
-            return {
-              object_type: objectType,
-              object_url: attachment.url,
-              object_text: attachment.filename,
-              model_type: modelType,
-            };
-          }),
-        ];
-        await ctx.syntx.chats.sendMessage(chatId, aiName, objects);
+        // Modern text-flow: `llm/generate` with `chat_uuid` binds the
+        // assistant reply to this chat. Live SPA capture (2026-10-04,
+        // `text.js`): body = { chat_uuid, text, model, ..., files? }.
+        await ctx.syntx.llm.generate({
+          prompt: String(args.prompt),
+          aiName,
+          modelType,
+          chatUuid: chatId,
+          ...(files.length > 0 ? { files } : {}),
+        });
         return textResult(
-          `Message sent to chat ${chatId}. Use "wait-for-response" or "get-messages" to read the reply.`,
+          files.length > 0
+            ? `Message with ${files.length} attachment(s) sent to chat ${chatId}. Use "wait-for-response" or "get-messages" to read the reply.`
+            : `Message sent to chat ${chatId}. Use "wait-for-response" or "get-messages" to read the reply.`,
         );
       } catch (err) {
         return toMcpError(err, 'send-message');
@@ -254,42 +241,27 @@ export const chatsTools: SyntxTool[] = [
             'chat_not_found',
           );
         }
-        const flow = routeTextFlow(ctx, { scope: 'text' });
-        if (flow) {
-          const completed = await flow.waitForResponse(chatId, {
-            timeout: (args.timeout as number | undefined) ?? ctx.config.pollTimeout,
-            signal: extra?.signal,
-            onProgress: (elapsed, total) => {
-              void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
-            },
-          });
-          const textBlock =
-            completed.text ||
-            (completed.media.length === 0 ? '(no assistant reply yet)' : '(media-only reply, see media below)');
-          return textResult(
-            `Assistant reply:\n\n${textBlock}\n\n` +
-              `--- media ---\n${JSON.stringify(completed.media, null, 2)}\n\n` +
-              `--- metadata ---\n${JSON.stringify(completed.message, null, 2)}`,
-          );
-        }
-
-        const { text, media, message } = await ctx.syntx.chats.waitForResponse(
-          chatId,
-          {
-            timeout: (args.timeout as number | undefined) ?? ctx.config.pollTimeout,
-            pollInterval: (args.poll_interval as number | undefined) ?? ctx.config.pollInterval,
-            signal: extra?.signal,
-            onProgress: (elapsed, total) => {
-              void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
-            },
+        const completed = await ctx.syntx.llm.waitForResponse(chatId, {
+          timeout: (args.timeout as number | undefined) ?? ctx.config.pollTimeout,
+          signal: extra?.signal,
+          onProgress: (elapsed, total) => {
+            void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
           },
-        );
+          llmSseBaseUrl: ctx.config.llmSseBaseUrl,
+          fallbackPoll: async (cid, opts2) =>
+            ctx.syntx.chats.pollForResponse(cid, {
+              timeout: opts2.timeout ?? ctx.config.pollTimeout,
+              signal: opts2.signal,
+              pollInterval: ctx.config.pollInterval,
+            }),
+        });
         const textBlock =
-          text || (media.length === 0 ? '(no assistant reply yet)' : '(media-only reply, see media below)');
+          completed.text ||
+          (completed.media.length === 0 ? '(no assistant reply yet)' : '(media-only reply, see media below)');
         return textResult(
           `Assistant reply:\n\n${textBlock}\n\n` +
-            `--- media ---\n${JSON.stringify(media, null, 2)}\n\n` +
-            `--- metadata ---\n${JSON.stringify(message, null, 2)}`,
+            `--- media ---\n${JSON.stringify(completed.media, null, 2)}\n\n` +
+            `--- metadata ---\n${JSON.stringify(completed.message, null, 2)}`,
         );
       } catch (err) {
         return toMcpError(err, 'wait-for-response');
@@ -316,7 +288,7 @@ export const chatsTools: SyntxTool[] = [
           type: 'string',
           enum: ['auto', 'stream', 'poll', 'off'],
           description:
-            'Override the streaming strategy. "stream" uses WSS; "poll" uses REST polling; "auto" tries WSS then falls back to polling; "off" disables waiting (the tool returns after sending).',
+            'Override the streaming strategy. "stream" uses SSE only; "poll" uses REST polling; "auto" tries SSE then falls back to polling; "off" disables waiting (the tool returns after sending).',
         },
       },
       required: ['prompt'],
@@ -331,65 +303,47 @@ export const chatsTools: SyntxTool[] = [
         const modelType = (args.model_type as string | undefined) ?? ctx.config.defaultModel;
         const timeout = (args.timeout as number | undefined) ?? ctx.config.pollTimeout;
 
-        const flow = routeTextFlow(ctx, { scope });
+        if ((scope ?? 'text') !== 'text') {
+          throw new SyntxAPIError(
+            `scope="${scope}" is no longer supported by ask; the legacy chats/{id}/messages path was removed. ` +
+              'Use the dedicated generate-image / generate-audio / generate-video tools for non-text outputs.',
+            400,
+            'unsupported_scope',
+          );
+        }
 
-        // `off` — fire-and-forget; create chat + send prompt, return immediately.
+        const { uuid } = await ctx.syntx.chats.create({
+          title: (args.title as string | undefined) ?? prompt.slice(0, 60),
+          scope,
+        });
+
+        // `off` — fire-and-forget; create chat + submit prompt, return immediately.
         if (mode === 'off') {
-          const { uuid } = await ctx.syntx.chats.create({
-            title: (args.title as string | undefined) ?? prompt.slice(0, 60),
-            scope,
-          });
-          if (flow) {
-            await ctx.syntx.llm.generate({ prompt, aiName, modelType, chatUuid: uuid });
-          } else {
-            await ctx.syntx.chats.sendMessage(uuid, aiName, [
-              {
-                object_type: 'text',
-                object_url: null,
-                object_text: prompt,
-                ...(modelType ? { model_type: modelType } : {}),
-              },
-            ]);
-          }
+          await ctx.syntx.llm.generate({ prompt, aiName, modelType, chatUuid: uuid });
           return textResult(
             `chat_uuid: ${uuid}\n\nMessage sent. Use "wait-for-response" or "stream-message" to read the reply.`,
           );
         }
 
-        // Text flow: create + llm.generate (with chat_uuid) + llm.waitForResponse
-        // (SSE primary via llm.getChatStream, polling fallback).
-        if (flow) {
-          const { uuid } = await ctx.syntx.chats.create({
-            title: (args.title as string | undefined) ?? prompt.slice(0, 60),
-            scope,
-          });
-          await ctx.syntx.llm.generate({ prompt, aiName, modelType, chatUuid: uuid });
-          const completed = await flow.waitForResponse(uuid, {
-            timeout,
-            signal: extra?.signal,
-            onProgress: (elapsed, total) => {
-              void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
-            },
-          });
-          return textResult(
-            `chat_uuid: ${uuid}\n\n` +
-              (completed.text || (completed.media.length === 0 ? '(no assistant reply yet)' : '(media-only reply)')),
-          );
-        }
-
-        // `poll` — pure REST: create + send + poll. No streaming attempted.
-        if (mode === 'poll') {
-          const { uuid, text } = await pollAsk(prompt, args, ctx, extra);
-          return textResult(`chat_uuid: ${uuid}\n\n${text}`);
-        }
-
-        // `stream` / `auto` — legacy WSS-shaped streaming helper (kept for
-        // non-text scopes where llm/* doesn't apply).
-        if (mode === 'stream' || mode === 'auto') {
-          return await streamAsk(prompt, args, ctx, extra);
-        }
-
-        throw new Error(`Unknown stream mode: ${String(mode)}`);
+        await ctx.syntx.llm.generate({ prompt, aiName, modelType, chatUuid: uuid });
+        const completed = await ctx.syntx.llm.waitForResponse(uuid, {
+          timeout,
+          signal: extra?.signal,
+          llmSseBaseUrl: ctx.config.llmSseBaseUrl,
+          fallbackPoll: async (cid, opts2) =>
+            ctx.syntx.chats.pollForResponse(cid, {
+              timeout: opts2.timeout ?? ctx.config.pollTimeout,
+              signal: opts2.signal,
+              pollInterval: ctx.config.pollInterval,
+            }),
+          onProgress: (elapsed, total) => {
+            void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
+          },
+        });
+        return textResult(
+          `chat_uuid: ${uuid}\n\n` +
+            (completed.text || (completed.media.length === 0 ? '(no assistant reply yet)' : '(media-only reply)')),
+        );
       } catch (err) {
         return toMcpError(err, 'ask');
       }
@@ -402,8 +356,7 @@ export const chatsTools: SyntxTool[] = [
       'sse.syntx.ai, sends the prompt, and streams the assistant reply. ' +
       'Falls back to REST polling on transport failure. Intermediate progress ' +
       'is reported via `notifications/progress` (when the client supplies a ' +
-      'progressToken); the final tool result contains the complete text. ' +
-      'Non-text scopes use the legacy polling path.',
+      'progressToken); the final tool result contains the complete text.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -417,7 +370,7 @@ export const chatsTools: SyntxTool[] = [
           type: 'string',
           enum: ['auto', 'stream', 'poll'],
           description:
-            'Override the streaming strategy. Default "auto" (WSS with polling fallback).',
+            'Override the streaming strategy. Default "auto" (SSE with polling fallback).',
         },
       },
       required: ['prompt'],
@@ -427,39 +380,48 @@ export const chatsTools: SyntxTool[] = [
       try {
         const prompt = String(args.prompt);
         const scope = (args.scope as string | undefined) ?? 'text';
+        if (scope !== 'text') {
+          throw new SyntxAPIError(
+            `stream-message only supports scope="text"; scope="${scope}" requires the dedicated generate-image/audio/video tools.`,
+            400,
+            'unsupported_scope',
+          );
+        }
         const aiName = (args.ai_name as string | undefined) ?? ctx.config.defaultAI;
         const modelType = (args.model_type as string | undefined) ?? ctx.config.defaultModel;
         const timeout = (args.timeout as number | undefined) ?? ctx.config.pollTimeout;
 
-        const flow = routeTextFlow(ctx, { scope });
-        if (flow) {
-          const { uuid } = await ctx.syntx.chats.create({
-            title: prompt.slice(0, 60),
-            scope,
-            ...(modelType ? { model: modelType } : {}),
-          });
-          await ctx.syntx.llm.generate({ prompt, aiName, modelType, chatUuid: uuid });
-          let chunkCount = 0;
-          const completed = await flow.waitForResponse(uuid, {
-            timeout,
-            signal: extra?.signal,
-            onProgress: (elapsed, total) => {
-              void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
-            },
-          });
-          if (completed.text) {
-            chunkCount = 1;
-            await ctx.sendProgress?.(completed.text.length, undefined, completed.text);
-            await ctx.sendLog?.('info', { chunk: chunkCount, length: completed.text.length }, 'stream-message');
-          }
-          return textResult(
-            `chat_uuid: ${uuid}\n` +
-              `elapsed_ms: ${Date.now()}\n` +
-              `chunks: ${chunkCount}\n\n${completed.text}`,
-          );
+        const { uuid } = await ctx.syntx.chats.create({
+          title: prompt.slice(0, 60),
+          scope,
+          ...(modelType ? { model: modelType } : {}),
+        });
+        await ctx.syntx.llm.generate({ prompt, aiName, modelType, chatUuid: uuid });
+        let chunkCount = 0;
+        const completed = await ctx.syntx.llm.waitForResponse(uuid, {
+          timeout,
+          signal: extra?.signal,
+          llmSseBaseUrl: ctx.config.llmSseBaseUrl,
+          fallbackPoll: async (cid, opts2) =>
+            ctx.syntx.chats.pollForResponse(cid, {
+              timeout: opts2.timeout ?? ctx.config.pollTimeout,
+              signal: opts2.signal,
+              pollInterval: ctx.config.pollInterval,
+            }),
+          onProgress: (elapsed, total) => {
+            void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
+          },
+        });
+        if (completed.text) {
+          chunkCount = 1;
+          await ctx.sendProgress?.(completed.text.length, undefined, completed.text);
+          await ctx.sendLog?.('info', { chunk: chunkCount, length: completed.text.length }, 'stream-message');
         }
-
-        return await streamAsk(prompt, args, ctx, extra);
+        return textResult(
+          `chat_uuid: ${uuid}\n` +
+            `elapsed_ms: ${Date.now()}\n` +
+            `chunks: ${chunkCount}\n\n${completed.text}`,
+        );
       } catch (err) {
         return toMcpError(err, 'stream-message');
       }
@@ -689,164 +651,3 @@ export const chatsTools: SyntxTool[] = [
     },
   },
 ];
-
-/**
- * Polling-based `ask` implementation: create a chat, send the prompt, then
- * poll the REST endpoint until the assistant reply completes.
- *
- * Used by:
- *  - `ask` with `mode: 'poll'`
- *  - `ask` / `stream-message` with `mode: 'auto'` when the WSS stream failed
- *    before a session was established (no chat to poll) or when polling the
- *    streamed chat itself failed (final fallback).
- */
-async function pollAsk(
-  prompt: string,
-  args: Record<string, unknown>,
-  ctx: McpContext,
-  extra?: import('../registry').SyntxToolExtra,
-): Promise<{ uuid: string; text: string }> {
-  const { uuid } = await ctx.syntx.chats.create({
-    title: (args.title as string | undefined) ?? prompt.slice(0, 60),
-    scope: (args.scope as string | undefined) ?? 'text',
-  });
-  const aiName = (args.ai_name as string | undefined) ?? ctx.config.defaultAI;
-  await ctx.syntx.chats.sendMessage(uuid, aiName, [
-    {
-      object_type: 'text',
-      object_url: null,
-      object_text: prompt,
-      model_type: (args.model_type as string | undefined) ?? ctx.config.defaultModel,
-    },
-  ]);
-  const { text } = await ctx.syntx.chats.waitForResponse(uuid, {
-    timeout: (args.timeout as number | undefined) ?? ctx.config.pollTimeout,
-    pollInterval: (args.poll_interval as number | undefined) ?? ctx.config.pollInterval,
-    signal: extra?.signal,
-    onProgress: (elapsed, total) => {
-      void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
-    },
-  });
-  return { uuid, text };
-}
-
-/**
- * Shared implementation behind `ask` (when `mode: 'stream' | 'auto'`) and the
- * dedicated `stream-message` tool.
- *
- * `ChatsResource.streamResponse` now performs REST-polling internally (the
- * syntx.ai API exposes no WebSocket/SSE endpoint). The flow is:
- *
- *  1. Create chat + send prompt via REST.
- *  2. Poll the messages endpoint until the assistant reply appears.
- *  3. Emit the reply as a chunk via `onChunk` and surface progress via
- *     `notifications/progress` / `notifications/message`.
- *  4. Return the chat UUID so callers can continue the conversation.
- *
- * `mode: 'auto'` is kept for backward compatibility — it behaves identically
- * to `'stream'` since there is no transport to fall back from. `'poll'`
- * routes through the lower-level {@link pollAsk} instead.
- */
-async function streamAsk(
-  prompt: string,
-  args: Record<string, unknown>,
-  ctx: McpContext,
-  _extra?: import('../registry').SyntxToolExtra,
-) {
-  const timeout = (args.timeout as number | undefined) ?? ctx.config.pollTimeout;
-  const aiName = (args.ai_name as string | undefined) ?? ctx.config.defaultAI;
-  const modelType = (args.model_type as string | undefined) ?? ctx.config.defaultModel;
-  const scope = (args.scope as string | undefined) ?? 'text';
-
-  let chunkCount = 0;
-  let chatUuid: string | undefined;
-  const result = await ctx.syntx.chats.streamResponse(prompt, {
-    timeout,
-    scope,
-    model: modelType,
-    aiName,
-    signal: _extra?.signal,
-    onProgress: (elapsed, total) => {
-      void ctx.sendProgress?.(elapsed, total, 'Waiting for assistant reply…');
-    },
-    onSession: (uuid) => {
-      chatUuid = uuid;
-    },
-    onChunk: async (_chunk, accumulated) => {
-      chunkCount++;
-      await ctx.sendProgress?.(accumulated.length, undefined, accumulated);
-      await ctx.sendLog?.('info', { chunk: chunkCount, length: accumulated.length }, 'stream-message');
-    },
-  });
-
-  const uuid = result.chatUuid ?? chatUuid;
-  return textResult(
-    `chat_uuid: ${uuid ?? '(no session)'}\n` +
-      `elapsed_ms: ${result.elapsedMs}\n` +
-      `chunks: ${chunkCount}\n\n${result.text}`,
-  );
-}
-
-/**
- * Decide whether a tool should route through the `llm/*` text-flow or fall
- * back to the legacy `chats/{id}/messages` path.
- *
- * Returns `null` for the legacy path (callers invoke the previous code);
- * returns `{ generate, waitForResponse }` for text-flow consumers.
- *
- * Routing rules:
- *  - `legacyTextTransport === true` → always legacy.
- *  - `scope !== 'text'` → always legacy (only `llm/generate` handles text).
- *  - Otherwise → text-flow (with SSE primary, polling fallback).
- */
-export function routeTextFlow(
-  ctx: McpContext,
-  opts: { scope?: string },
-): {
-  generate: typeof ctx.syntx.llm.generate;
-  waitForResponse: (
-    chatId: string,
-    waitOpts: {
-      timeout?: number;
-      signal?: AbortSignal;
-      onProgress?: (elapsed: number, total: number) => void;
-    },
-  ) => Promise<import('../../types').CompletedMessage>;
-} | null {
-  if (ctx.config.legacyTextTransport) return null;
-  if ((opts.scope ?? 'text') !== 'text') return null;
-  return {
-    generate: ctx.syntx.llm.generate.bind(ctx.syntx.llm),
-    waitForResponse: async (chatId, waitOpts) =>
-      waitForTextResponse(chatId, waitOpts, ctx),
-  };
-}
-
-/**
- * Shared text-flow wait helper used by `send-message` / `wait-for-response` /
- * `stream-message` / `ask`. Opens an SSE connection on the configured
- * `llmSseBaseUrl`, accumulates message-event payloads, and falls back to
- * `chats.pollForResponse` on transport failure or timeout.
- */
-async function waitForTextResponse(
-  chatId: string,
-  waitOpts: {
-    timeout?: number;
-    signal?: AbortSignal;
-    onProgress?: (elapsed: number, total: number) => void;
-  },
-  ctx: McpContext,
-): Promise<import('../../types').CompletedMessage> {
-  return ctx.syntx.llm.waitForResponse(chatId, {
-    timeout: waitOpts.timeout ?? ctx.config.pollTimeout,
-    signal: waitOpts.signal,
-    onProgress: waitOpts.onProgress,
-    llmSseBaseUrl: ctx.config.llmSseBaseUrl,
-    fallbackPoll: async (cid, opts2) =>
-      ctx.syntx.chats.pollForResponse(cid, {
-        timeout: opts2.timeout ?? ctx.config.pollTimeout,
-        signal: opts2.signal,
-        pollInterval: ctx.config.pollInterval,
-      }),
-  });
-}

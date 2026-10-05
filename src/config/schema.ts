@@ -17,7 +17,7 @@ export interface McpServerConfig {
   baseURL: string;
   /** HTTP request timeout in milliseconds. */
   timeout: number;
-  /** Preferred language code (used by WebSocket streaming and locales). */
+  /** Preferred language code (used by locales). */
   lang: string;
   /** Default AI service name used when a tool omits `ai_name` (e.g. "chatgpt"). */
   defaultAI: string;
@@ -45,26 +45,18 @@ export interface McpServerConfig {
   httpToken?: string;
   /**
    * Default streaming strategy for chat tools.
-   *  - `'auto'`   — try WSS, fall back to REST polling on error
-   *  - `'stream'` — WSS only (failures surface to the caller)
-   *  - `'poll'`   — REST polling only (legacy behaviour)
-   *  - `'off'`    — disable `wait-for-response`/`ask` streaming helpers entirely
+   *  - `'auto'`   — try SSE, fall back to REST polling on transport failure
+   *  - `'stream'` — SSE only (failures surface to the caller)
+   *  - `'poll'`   — REST polling only
+   *  - `'off'`    — fire-and-forget; no waiting
    */
   streamMode: StreamMode;
-  /** Override the WSS base URL (used by streaming endpoints). */
-  wsURL: string;
   /**
    * Base URL for the `sse.syntx.ai` Server-Sent Events stream used by the
    * text-flow `llm/*` namespace. `stream_url` values from the server are
    * joined onto this origin.
    */
   llmSseBaseUrl: string;
-  /**
-   * When true, the chat tools (`ask`, `stream-message`, `send-message`,
-   * `wait-for-response`) bypass the `llm/*` text-flow and use the legacy
-   * `chats/{id}/messages` path with REST polling. Defaults to `false`.
-   */
-  legacyTextTransport: boolean;
   /**
    * TTL for the in-memory cache used by `LlmResource.listModels`. The SPA
    * hits this endpoint frequently, so the SDK caches it for a short window.
@@ -84,9 +76,7 @@ export const DEFAULT_CONFIG: McpServerConfig = {
   httpPort: 3000,
   httpHostname: '127.0.0.1',
   streamMode: 'auto',
-  wsURL: 'wss://api.syntx.ai/api/v1',
   llmSseBaseUrl: 'https://sse.syntx.ai',
-  legacyTextTransport: false,
   listLlmModelsCacheMs: 60000,
 };
 
@@ -105,8 +95,6 @@ export const ENV_KEYS = {
   httpHostname: 'MCP_HTTP_HOSTNAME',
   httpToken: 'MCP_HTTP_TOKEN',
   streamMode: 'SYNTX_STREAM_MODE',
-  wsURL: 'SYNTX_WS_URL',
   llmSseBaseUrl: 'SYNTX_LLM_SSE_BASE_URL',
-  legacyTextTransport: 'SYNTX_LEGACY_TEXT_TRANSPORT',
   listLlmModelsCacheMs: 'SYNTX_LLM_MODELS_CACHE_MS',
 } as const;

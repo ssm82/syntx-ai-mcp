@@ -4,15 +4,12 @@ import type {
   Chat,
   MessagesResponse,
   Pagination,
-  MessageObject,
   InProgressResponse,
   WaitForResponseOptions,
   Message,
   MessageObjectItem,
   CompletedMedia,
   CompletedMessage,
-  StreamResponseOptions,
-  StreamResponseResult,
 } from '../types';
 
 const MEDIA_OBJECT_TYPES = new Set(['image', 'video', 'audio', 'file']);
@@ -95,10 +92,6 @@ export interface SendMessageParams {
   attachments?: unknown[];
 }
 
-export interface SendChatMessageParams {
-  message_object: MessageObject;
-}
-
 export interface UploadResult {
   files: Array<{
     url: string;
@@ -120,8 +113,8 @@ export type UploadFileInput =
   | { buffer: Uint8Array; filename: string; mimeType?: string };
 
 /**
- * Resource for chats and messages.
- * Supports both REST API and WebSocket real-time messaging.
+ * Resource for chats and messages. Read endpoints (chat list, messages,
+ * in-progress) live here; text-flow generation uses {@link LlmResource}.
  */
 export class ChatsResource {
   constructor(private readonly client: BaseClient) {}
@@ -176,17 +169,6 @@ export class ChatsResource {
   }
 
   /**
-   * Send a message (or multiple objects) to a chat.
-   * POST /api/v1/chats/{chatId}/messages?ai_name={aiName}
-   *
-   * The real API expects `{ objects: MessageObject[] }`.
-   * Each object can have object_type "text", "filetext", "image", etc.
-   */
-  async sendMessage(chatId: string, aiName: string, objects: MessageObject[]): Promise<unknown> {
-    return this.client.post<unknown>(`/api/v1/chats/${chatId}/messages`, { objects }, { ai_name: aiName });
-  }
-
-  /**
    * Check if a chat has in-progress operations.
    * GET /api/v1/chats/{chatId}/inprogress
    */
@@ -237,99 +219,15 @@ export class ChatsResource {
    * bounded by a `created_at` boundary to ignore stale messages from previous
    * requests.
    *
-   * For real-time token-by-token delivery (without first creating a chat via
-   * REST), use {@link ChatsResource.streamResponse} instead.
+   * For text-scope chats, prefer {@link LlmResource.generate} +
+   * {@link LlmResource.waitForResponse}, which use the `llm/*` text-flow
+   * and stream via SSE.
    */
   async waitForResponse(
     chatId: string,
     options?: WaitForResponseOptions
   ): Promise<CompletedMessage> {
     return this.pollForResponse(chatId, options);
-  }
-
-  /**
-   * Stream a reply from the syntx.ai API (REST-polling based).
-   *
-   * The syntx.ai API does not expose a WebSocket or SSE endpoint. The
-   * assistant reply is generated asynchronously and only appears (in full)
-   * once the model finishes. This method provides a streaming-compatible
-   * interface on top of REST polling:
-   *
-   *  1. Creates a chat via REST.
-   *  2. Sends the prompt via REST (`POST /chats/{uuid}/messages`).
-   *  3. Fires {@link StreamResponseOptions.onSession} with the chat UUID.
-   *  4. Polls the messages endpoint until the assistant reply appears.
-   *  5. Fires {@link StreamResponseOptions.onChunk} with the complete text
-   *     (the API delivers it atomically — there is no incremental growth).
-   *  6. Resolves with the full result, including `chatUuid` for follow-ups.
-   *
-   * @param prompt - The user prompt text.
-   * @param options - Streaming options. `scope`, `model`, and `aiName`
-   *   control chat/message creation. `timeout` bounds the poll loop.
-   */
-  async streamResponse(
-    prompt: string,
-    options?: StreamResponseOptions & { scope?: string; model?: string },
-  ): Promise<StreamResponseResult> {
-    const scope = options?.scope ?? 'text';
-    const model = options?.model;
-    const aiName = options?.aiName;
-    const timeout = options?.timeout ?? 600000;
-    const pollInterval = 2000;
-    const onSession = options?.onSession;
-    const onChunk = options?.onChunk;
-
-    const start = Date.now();
-
-    // ── Step 1: create the chat ────────────────────────────────────────
-    const chat = await this.create({
-      scope,
-      title: prompt.slice(0, 60),
-      ...(model ? { model } : {}),
-    });
-    const chatUuid = chat.uuid;
-    try {
-      onSession?.(chatUuid);
-    } catch {
-      /* swallow callback errors */
-    }
-
-    // ── Step 2: send the prompt ────────────────────────────────────────
-    await this.sendMessage(chatUuid, aiName ?? 'chatgpt', [
-      {
-        object_type: 'text',
-        object_url: null,
-        object_text: prompt,
-        ...(model ? { model_type: model } : {}),
-      },
-    ]);
-
-    // ── Step 3: poll for the assistant reply ───────────────────────────
-    const { text } = await this.pollForResponse(chatUuid, {
-      timeout,
-      pollInterval,
-      signal: options?.signal,
-      onProgress: options?.onProgress,
-    });
-
-    // The API delivers the full reply atomically, so we emit a single chunk.
-    if (text) {
-      try {
-        onChunk?.(text, text);
-      } catch {
-        /* swallow callback errors */
-      }
-    }
-
-    return {
-      text,
-      // The REST `Message` shape differs from the WSS `StreamingMessage`;
-      // we expose the text (the caller's primary interest) and null the
-      // raw frame since we no longer use WebSocket frames.
-      message: null,
-      elapsedMs: Date.now() - start,
-      chatUuid,
-    };
   }
 
   /**
@@ -648,9 +546,9 @@ export class ChatsResource {
    *
    * The server accepts both numeric ids (`20872358`) and uuids
    * (`968e99a3-…`) in the path. Useful as a pre-flight existence check
-   * before `sendMessage` / `streamMessage` when the caller may be holding
-   * a stale reference (e.g. a soft-deleted chat that no longer appears
-   * in `list` but is still accessible for read/write).
+   * before `llm.generate` / `llm.waitForResponse` when the caller may be
+   * holding a stale reference (e.g. a soft-deleted chat that no longer
+   * appears in `list` but is still accessible for read/write).
    */
   async get(chatId: string): Promise<Chat> {
     return this.client.get<Chat>(`/api/v1/chats/${chatId}`);

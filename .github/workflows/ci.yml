@@ -16,7 +16,7 @@ jobs:
       # hides the real error and leaves us guessing which version broke.
       fail-fast: false
       matrix:
-        # Code uses the `File` and `WebSocket` globals (Node 20+ / 21+),
+        # Code uses the `File` global (Node 20+ / 21+),
         # and `engines.node` is `>=20`, so 18.x is intentionally excluded.
         node-version: [20.x, 22.x]
 

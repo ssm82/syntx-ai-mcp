@@ -13,7 +13,7 @@ npm run typecheck    # tsc --noEmit
 npm run dev          # build in watch mode
 ```
 
-Node.js **≥ 18** is required (the project uses built-in `fetch` and `WebSocket`).
+Node.js **≥ 18** is required (the project uses built-in `fetch`; image upload uses the `File` global available on Node 20+).
 
 ## Project layout
 

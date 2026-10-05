@@ -2,18 +2,12 @@
 export { SyntxClient } from './syntx-client';
 export { BaseClient, type SyntxClientConfig } from './client';
 export { SyntxAuth } from './auth';
-export {
-  SyntxWebSocket,
-  type WSSMessage,
-  type StreamingMessage,
-  type SyntxWebSocketOptions,
-} from './websocket';
 export { SyntxAPIError, SyntxAuthError, SyntxAbortError, SyntxTimeoutError } from './errors';
 
 export * from './types';
 export { collectCompletedObjects } from './resources/chats';
 
-export { AIResource, type GetModelInfoParams } from './resources/ai';
+export { AIResource } from './resources/ai';
 export { UserResource, toPublicUser } from './resources/user';
 export {
   ChatsResource,
@@ -21,7 +15,6 @@ export {
   type ListMessagesParams,
   type CreateChatParams,
   type SendMessageParams,
-  type SendChatMessageParams,
   type UploadResult,
   type UploadFileInput,
 } from './resources/chats';

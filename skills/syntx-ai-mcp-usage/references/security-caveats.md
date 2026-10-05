@@ -41,13 +41,12 @@ The default install is `stdio`. HTTP is opt-in via `--transport http`. Every cav
 - **Consumer mitigation (today):** Never log or echo the raw response of `whoami`. Treat `User` as a credential-bearing object.
 - **Consumer mitigation (post-H2):** `User` will be split into `UserPublic` (returned to MCP callers) and `UserInternal` (server-side only). The three leak sites will switch to the public type.
 
-### 4. `SyntxWebSocket` token in URL query
+### 4. `SyntxWebSocket` — removed
 
-- **Where:** `src/websocket.ts:107-110` — `url.searchParams.set('token', this.token)`.
+- **Where:** previously `src/websocket.ts`.
 - **Risk:** Bearer tokens in query strings land in proxy logs, browser history, server access logs, and WSS-handshake reverse-proxy logs. Any of those becomes a credential leak.
-- **Current state:** Module is marked `@deprecated` and still exported from `src/index.ts:6-9`. The example `examples/chat-example.ts:71,98` still uses it.
-- **Consumer mitigation (today):** Do not use `SyntxWebSocket`. Use `ask` / `send-message` / `stream-message` exclusively — they pass the token via headers or in-process state.
-- **Consumer mitigation (post-H3):** Deprecated module will require an explicit opt-in flag and the example will be updated to use `stream-message`.
+- **Current state:** Removed entirely in v0.4.0. The syntx.ai API never exposed a functional WSS endpoint, so no production path needed it.
+- **Consumer mitigation:** Use `ask` / `send-message` / `stream-message` exclusively — they pass the token via headers or in-process state.
 
 ### 5. `set-token` over HTTP — token installation surface
 
@@ -74,7 +73,6 @@ Run through this list before exposing the MCP server to any non-loopback caller:
 - [ ] Set `MCP_HTTP_TOKEN` for HTTP, plus a tight Host/Origin allow-list.
 - [ ] Disable `set-token` over HTTP post-v0.2.1 (or upgrade beyond v0.2.0 first).
 - [ ] Never pass `path` to `upload-files` or `transcribe` over HTTP — use `content_base64`.
-- [ ] Do not use `SyntxWebSocket` directly.
 - [ ] Never log the raw response of `whoami` or any `User`-returning tool.
 - [ ] Audit any custom tool that reads files from disk before exposing it over HTTP.
 - [ ] If fronting the MCP server with a browser, ensure the reverse proxy enforces same-origin to bypass the OPTIONS / Host-header canonicalization gaps.
@@ -85,7 +83,7 @@ Run through this list before exposing the MCP server to any non-loopback caller:
 |---|---|---|---|
 | H1 | Centralized `assertPathSourceAllowed` in `file-input.ts` | `src/mcp/tools/file-input.ts` | Planned for v0.2.1 |
 | H2 | Split `User` into `UserPublic` / `UserInternal` | `src/types.ts`, three callers | Planned for v0.2.1 |
-| H3 | Remove bearer-in-query from `SyntxWebSocket` | `src/websocket.ts`, `src/index.ts`, `examples/chat-example.ts` | Planned for v0.2.1 |
+| H3 | Remove `SyntxWebSocket` entirely | `src/websocket.ts`, `src/index.ts`, `examples/chat-example.ts`, tests | Done in v0.4.0 |
 | M1 | `console.error` (not `console.log`) for bootstrap messages | `src/bin/cli.ts:121-128` | Planned for v0.2.1 |
 | M2 | `Content-Length` cap + per-chunk accumulator + `maxHeaderSize` | `src/transport/http.ts` | Planned for v0.2.1 |
 | M3 | Proper Host/Origin canonicalization | `src/transport/http.ts:182-205` | Planned for v0.2.1 |

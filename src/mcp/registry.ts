@@ -78,8 +78,7 @@ export interface McpContext {
    * Send a `notifications/message` (logging) frame to the client. Falls
    * back silently if the client does not support logging notifications.
    *
-   * Used by `stream-message` for per-chunk log notifications (see
-   * `chats.ts:streamAsk.onChunk`).
+   * Used by `stream-message` for per-chunk log notifications.
    */
   sendLog?: (
     level: 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency',

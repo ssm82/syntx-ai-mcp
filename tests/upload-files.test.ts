@@ -143,21 +143,26 @@ test('send-message exposes uploaded-file attachments in its input schema', () =>
   assert.ok('size' in attachmentSchema.items.properties);
 });
 
-test('send-message forwards uploaded files as attachment message objects', async () => {
-  const calls: unknown[][] = [];
+test('send-message forwards uploaded files as files[] on llm/generate', async () => {
+  const sendCalls: unknown[][] = [];
+  const generateCalls: unknown[][] = [];
   const ctx = {
     syntx: {
       chats: {
         exists: async () => true,
         sendMessage: async (...args: unknown[]) => {
-          calls.push(args);
+          sendCalls.push(args);
+        },
+      },
+      llm: {
+        generate: async (...args: unknown[]) => {
+          generateCalls.push(args);
         },
       },
     },
     config: {
       defaultAI: 'chatgpt',
       defaultModel: 'gpt-5.5',
-      legacyTextTransport: true,
     },
   } as unknown as McpContext;
   const tool = chatsTools.find((candidate) => candidate.name === 'send-message');
@@ -179,26 +184,20 @@ test('send-message forwards uploaded files as attachment message objects', async
   );
 
   assert.equal(result.isError, undefined);
-  assert.deepEqual(calls, [
-    [
-      'chat-1',
-      'chatgpt',
-      [
-        {
-          object_type: 'text',
-          object_url: null,
-          object_text: 'Describe the attachment',
-          model_type: 'gpt-5.5',
-        },
-        {
-          object_type: 'image',
-          object_url: 'https://r2.syntx.ai/uploaded/diagram.png',
-          object_text: 'diagram.png',
-          model_type: 'gpt-5.5',
-        },
-      ],
+  assert.equal(sendCalls.length, 0, 'legacy sendMessage must NOT be called');
+  assert.equal(generateCalls.length, 1);
+  assert.deepEqual(generateCalls[0]?.[0], {
+    prompt: 'Describe the attachment',
+    aiName: 'chatgpt',
+    modelType: 'gpt-5.5',
+    chatUuid: 'chat-1',
+    files: [
+      {
+        object_type: 'image',
+        object_url: 'https://r2.syntx.ai/uploaded/diagram.png',
+      },
     ],
-  ]);
+  });
 });
 
 // ── uploadFiles: model_type form field (catalog reconciliation item 3) ─────

@@ -400,25 +400,6 @@ export interface PromoBanner {
 }
 
 /**
- * v2 model info response
- */
-export interface ModelInfoV2 {
-  ai_name: string;
-  model_type: string;
-  info: unknown;
-}
-
-/**
- * Message object sent in chat messages
- */
-export interface MessageObject {
-  object_type: string;
-  object_url: string | null;
-  object_text: string;
-  model_type?: string;
-}
-
-/**
  * Design generation settings
  */
 export interface DesignSettings {
@@ -621,82 +602,13 @@ export interface WaitForResponseOptions {
 }
 
 /**
- * Strategy for receiving an assistant reply.
- *  - `stream` — real-time via WebSocket (recommended)
- *  - `poll`   — periodic REST polling (legacy, robust on weak networks)
- *  - `auto`   — try stream, fall back to poll
+ * Strategy for receiving an assistant reply (SSE-based text flow).
+ *  - `stream` — SSE only (failures surface to the caller)
+ *  - `poll`   — periodic REST polling
+ *  - `auto`   — try SSE, fall back to polling on transport failure
+ *  - `off`    — fire-and-forget; no waiting
  */
-export type StreamMode = 'stream' | 'poll' | 'auto';
-
-/**
- * Options accepted by {@link ChatsResource.streamResponse}.
- */
-export interface StreamResponseOptions {
-  /**
-   * Total wall-clock budget in milliseconds. Resolved/rejected when exceeded.
-   * Default 600000 (10 minutes).
-   */
-  timeout?: number;
-  /**
-   * Override the WSS base URL.
-   */
-  wsURL?: string;
-  /**
-   * Preferred language code passed to the WSS endpoint.
-   */
-  lang?: string;
-  /**
-   * Per-chunk callback. Called with the raw delta and the cumulative text.
-   */
-  onChunk?: (chunk: string, accumulated: string) => void;
-  /**
-   * Per-message callback. Called once per complete server `message` frame
-   * (in addition to onChunk). Useful for callers that need the full frame
-   * metadata (model_type, etc.).
-   */
-  onMessage?: (msg: import('./websocket').StreamingMessage) => void;
-  /**
-   * Provider (AI service) name to route the prompt to, e.g. `'gemini'`,
-   * `'chatgpt'`, `'claude'`. Forwarded to the REST `sendMessage` call so
-   * the server picks the right backend.
-   */
-  aiName?: string;
-  /**
-   * Fired exactly once when the chat has been created and its UUID is known.
-   * Lets callers capture the UUID for follow-up messages or polling.
-   */
-  onSession?: (chatUuid: string) => void;
-  /**
-   * Cancellation signal honoured by the internal poll loop — see
-   * {@link WaitForResponseOptions.signal}.
-   */
-  signal?: AbortSignal;
-  /**
-   * Heartbeat fired once per poll tick while waiting for the reply — see
-   * {@link WaitForResponseOptions.onProgress}.
-   */
-  onProgress?: (elapsedMs: number, timeoutMs: number) => void;
-}
-
-/**
- * Final result of a streamed response.
- */
-export interface StreamResponseResult {
-  /** Full assistant text (concatenation of all chunks). */
-  text: string;
-  /**
-   * Last `message` frame received from the server. May carry metadata
-   * (model_type, usage, etc.). `null` if no message was received.
-   */
-  message: import('./websocket').StreamingMessage | null;
-  /** Time elapsed between prompt submission and completion, in milliseconds. */
-  elapsedMs: number;
-  /**
-   * Chat UUID of the session. Use it for follow-up `send-message` /
-   * `wait-for-response` calls.
-   */
-  chatUuid?: string;
-}
+export type StreamMode = 'stream' | 'poll' | 'auto' | 'off';
 
 /**
  * Voice example item
@@ -803,7 +715,7 @@ export interface LlmModel {
 /**
  * Parameters accepted by {@link LlmResource.generate}. Mirrors the
  * `POST /api/v1/llm/generate` body shape captured from live SPA traffic
- * (syntx.ai browser DevTools, 2026-09-21):
+ * (syntx.ai browser DevTools, 2026-10-04):
  *
  *   body: {
  *     chat_uuid?: string,
@@ -813,12 +725,20 @@ export interface LlmModel {
  *     plan?: boolean,
  *     deep_research?: boolean,
  *     tools?: string[],
+ *     system_prompt?: string,
+ *     files?: { object_type: 'image' | 'file', object_url: string }[],
  *   }
  *   query: ai_name=…
  *
  * Note: the chat-binding field is `chat_uuid`, NOT `chat_id`. Sending
  * `chat_id` returns 422 from the server. Earlier SPA bundles that sent
  * `{ objects, chat_id, model_type }` are no longer compatible.
+ *
+ * The `files` field is the canonical attachment channel for the text-flow
+ * path — replacing the legacy `chats/{id}/messages` `objects[]` shape.
+ * Each entry maps to an upload via {@link ChatsResource.uploadFiles}.
+ * `object_type` is `'image'` when the attachment is an image (consumed
+ * by vision-capable models) and `'file'` otherwise.
  */
 export interface LlmGenerateParams {
   prompt: string;
@@ -829,6 +749,17 @@ export interface LlmGenerateParams {
   plan?: boolean;
   deepResearch?: boolean;
   tools?: string[];
+  systemPrompt?: string;
+  files?: LlmGenerateFile[];
+}
+
+/**
+ * One attachment passed through `POST /api/v1/llm/generate`'s `files[]` field.
+ * Mirrors the live SPA's wire shape (`text.js` → `Le()`).
+ */
+export interface LlmGenerateFile {
+  object_type: 'image' | 'file';
+  object_url: string;
 }
 
 /** Filters accepted by {@link LlmResource.listModels}. */

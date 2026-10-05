@@ -10,7 +10,6 @@ Before any model-sensitive call:
 
 1. `list-ai-services` → list of provider identifiers (`ai_name`).
 2. `list-models(ai_name=<chosen>)` → list of `value` strings valid for that provider.
-3. `get-model-info(ai_name, model_type)` → confirm pricing and per-call limits.
 
 Omitting both `ai_name` and `model_type` falls back to the server's startup defaults (`SYNTX_DEFAULT_AI` / `SYNTX_DEFAULT_MODEL`, configured when the MCP server launches). Prefer passing `ai_name` + `model_type` explicitly on every model-sensitive call.
 
@@ -58,15 +57,6 @@ Resolution order per call when caller omits parameters:
 2. `model_type` → server default (`SYNTX_DEFAULT_MODEL` at MCP-server startup, provider default if unset).
 
 There are no runtime default-switching tools — to use a different model, pass `ai_name` / `model_type` explicitly in the `ask` / `send-message` call.
-
-## Cost & limit checks
-
-`get-model-info` returns per-model data including:
-
-- Pricing (`chars_count`, `batch_size`, `mode`, `quality`, `video_duration` — depends on model family).
-- Limits (image resolution, video duration, sample rate for audio).
-
-Pass the relevant params explicitly when invoking the corresponding tool. For image generation via `generate-image`, pass `model_type` (`"gpt-image-2"` in current catalogs) and `resolution` (e.g., `"720x1280"`). For audio via `generate-audio`, pass `voice_id`, `sample_rate`, `bitrate`, etc.
 
 ## Catalog refresh cadence
 

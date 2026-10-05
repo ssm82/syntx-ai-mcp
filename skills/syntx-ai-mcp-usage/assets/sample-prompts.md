@@ -151,4 +151,3 @@ These will silently waste time, leak secrets, or corrupt the chat history. Avoid
 - ❌ Logging the raw response of `whoami` or any `User`-returning tool — internal identifiers leak.
 - ❌ Re-invoking `ask` after a timeout instead of recovering with `list-chats` + `get-messages` — produces duplicate chats.
 - ❌ `set-token` over HTTP for production deployments — restricted in v0.2.1; set `SYNTX_TOKEN` via env instead.
-- ❌ Importing `SyntxWebSocket` directly — bearer-token-in-URL class. Use `ask` / `send-message` / `stream-message`.

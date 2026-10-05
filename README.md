@@ -74,7 +74,7 @@
 
 ## Требования
 
-- **Node.js ≥ 18** (использует встроенный `fetch` и `WebSocket`)
+- **Node.js ≥ 18** (использует встроенный `fetch`)
 - Учётная запись и **bearer-токен** [syntx.ai](https://syntx.ai)
 - MCP-совместимый клиент (Claude Desktop, Cursor, VS Code Insiders, Cline, …)
 
@@ -229,10 +229,8 @@ SYNTX_TOKEN="ВАШ_ТОКЕН" npx syntx-ai-mcp --transport http --http-port 80
 | `SYNTX_DEFAULT_MODEL` | string | — | Модель по умолчанию. |
 | `SYNTX_POLL_INTERVAL` | number | `5000` | Интервал polling ответа, мс. |
 | `SYNTX_POLL_TIMEOUT` | number | `600000` | Максимальное ожидание ответа, мс. |
-| `SYNTX_STREAM_MODE` | `auto` \| `stream` \| `poll` \| `off` | `auto` | Стратегия стриминга для `ask` / `stream-message`. Влияет только на `ask` (см. ниже). |
-| `SYNTX_WS_URL` | string | `wss://api.syntx.ai/api/v1` | Базовый URL WSS-эндпоинта. |
+| `SYNTX_STREAM_MODE` | `auto` \| `stream` \| `poll` \| `off` | `auto` | Стратегия стриминга для `ask` / `stream-message`. |
 | `SYNTX_LLM_SSE_BASE_URL` | string | `https://sse.syntx.ai` | Базовый URL для SSE-стрима, используемого text-flow `llm/*`. |
-| `SYNTX_LEGACY_TEXT_TRANSPORT` | boolean | `false` | Если `true`, инструменты `ask` / `stream-message` / `send-message` / `wait-for-response` используют устаревший путь `chats/{id}/messages` с REST-поллингом вместо нового `llm/*` (text-flow + SSE). |
 | `SYNTX_LLM_MODELS_CACHE_MS` | number | `60000` | TTL in-memory кэша для `syntx.llm.listModels()`. |
 | `MCP_TRANSPORT` | `stdio` \| `http` | `stdio` | Транспорт MCP-сервера. |
 | `MCP_HTTP_PORT` | number | `3000` | Порт HTTP-транспорта. |
@@ -311,7 +309,6 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 |---|---|---|
 | `list-ai-services` | Доступные AI-сервисы (ChatGPT, Midjourney, Sora…) | — |
 | `list-models` | Модели с ограничениями и поддерживаемыми форматами | `scope?`, `ai_name?`, `active_only?`, `search?` |
-| `get-model-info` | Детальная информация о модели (параметры, лимиты) | `ai_name`*, `model_type`*, `batch_size?`, `quality?`, `video_duration?`, `chars_count?`, `mode?` |
 
 Параметры `list-models` (все опциональны, комбинируются через AND):
 
@@ -611,15 +608,18 @@ const { balance } = await syntx.user.getBalance();
 // Список моделей
 const models = await syntx.ai.listModels();
 
-// Создать чат и отправить сообщение
+// Создать чат и отправить сообщение через llm/* text-flow
 const chat = await syntx.chats.create({ scope: 'text', title: 'Demo' });
-await syntx.chats.sendMessage(chat.uuid, 'chatgpt', [
-  { object_type: 'text', object_url: null, object_text: 'Привет!', model_type: 'your-model-id' },
-]);
+await syntx.llm.generate({
+  prompt: 'Привет!',
+  aiName: 'chatgpt',
+  modelType: 'your-model-id',
+  chatUuid: chat.uuid,
+});
 
-// Дождаться ответа
-const { text } = await syntx.chats.waitForResponse(chat.uuid);
-console.log(text);
+// Дождаться ответа (SSE primary + REST polling fallback)
+const completed = await syntx.llm.waitForResponse(chat.uuid, { timeout: 60_000 });
+console.log(completed.text);
 ```
 
 ### Программный запуск MCP-сервера
@@ -637,9 +637,9 @@ await runTransport(factory, 'stdio', 3000);
 | Группа | Методы |
 |---|---|
 | `syntx.auth` | `setToken`, `getToken`, `isAuthenticated`, `validateToken`, `logout`, `sendEmailOtp`, `verifyEmailOtp`, `loginWithEmail` |
-| `syntx.ai` | `listServices`, `listModels`, `getModelInfo` |
+| `syntx.ai` | `listServices`, `listModels` |
 | `syntx.user` | `me`, `getBalance`, `getSubscription`, `getSettings` |
-| `syntx.chats` | `list`, `create`, `getMessages`, `sendMessage`, `waitForResponse`, `pollForResponse`, `streamResponse`, `cancelMessage`, `generateTitle`, `delete`, `pin`, `moveToFolder`, `uploadFiles`, `getUploadedFiles`, `deleteFile`, `transcribe` |
+| `syntx.chats` | `list`, `create`, `getMessages`, `waitForResponse`, `pollForResponse`, `cancelMessage`, `generateTitle`, `delete`, `pin`, `moveToFolder`, `uploadFiles`, `getUploadedFiles`, `deleteFile`, `transcribe` |
 | `syntx.llm` | `getLimits`, `generate`, `listModels`, `getChatStream`, `waitForResponse` |
 | `syntx.design` | `generate` |
 | `syntx.audio` | `listVoiceExamples` |
@@ -648,44 +648,48 @@ await runTransport(factory, 'stdio', 3000);
 
 ## Стриминг ответов
 
-`ChatsResource.streamResponse(prompt, options)` создаёт чат, отправляет промпт и опрашивает REST API до появления ответа. Возвращает `{ text, message, elapsedMs, chatUuid }`. Колбэк `onChunk(chunk, accumulated)` вызывается с полным текстом ответа.
+Текстовые ответы идут через `llm/*` text-flow (SSE primary + REST-поллинг как fallback). Все text-scope операции (`ask`, `stream-message`, `send-message`, `wait-for-response`) внутри используют одну и ту же связку:
 
 ```ts
-const result = await syntx.chats.streamResponse('Расскажи о Kepler-186f', {
-  timeout: 60_000,
+// 1. Создать чат
+const chat = await syntx.chats.create({ scope: 'text', title: 'Demo' });
+
+// 2. Отправить промпт (POST /api/v1/llm/generate с chat_uuid)
+await syntx.llm.generate({
+  prompt: 'Расскажи о Kepler-186f',
   aiName: 'gemini',
-  model: 'gemini-3.5-flash',
-  onSession: (uuid) => console.log('chat:', uuid),
-  onChunk: (chunk, accumulated) => process.stdout.write(chunk),
+  modelType: 'gemini-3.5-flash',
+  chatUuid: chat.uuid,
 });
-console.log(`\n✓ ${result.text.length} chars in ${result.elapsedMs}ms (chat: ${result.chatUuid})`);
+
+// 3. Дождаться ответа (SSE primary, REST polling fallback)
+const completed = await syntx.llm.waitForResponse(chat.uuid, {
+  timeout: 60_000,
+});
+console.log(`\n✓ ${completed.text.length} chars`);
 ```
 
-> **Как это работает:** API syntx.ai генерирует ответ асинхронно и возвращает его целиком по готовности (инкрементального token-by-token стриминга нет). `streamResponse` предоставляет стриминг-совместимый интерфейс поверх REST-поллинга: `onSession` — при создании чата, `onChunk` — при получении ответа, `chatUuid` — для последующих сообщений.
+> **Как это работает:** API syntx.ai генерирует ответ асинхронно. SSE-стрим `sse.syntx.ai` отдаёт дельты текста (`event: message`, `type: content`); по `[DONE]` (или чистому закрытию) ответ считается завершённым. На сбое SSE SDK переключается на REST-поллинг через `chats.pollForResponse` — для пользователя разницы нет.
 
-Внутри MCP-сервера инструмент `stream-message` оборачивает тот же метод, отправляя `notifications/progress` и `notifications/message` (если клиент передал `progressToken` в `_meta`).
+Внутри MCP-сервера инструмент `stream-message` оборачивает тот же поток, отправляя `notifications/progress` и `notifications/message` (если клиент передал `progressToken` в `_meta`).
 
 Стратегия управляется через `SYNTX_STREAM_MODE`:
 
 | Значение | Поведение |
 |---|---|
-| `auto` (по умолчанию) | REST-поллинг через `streamResponse` |
-| `stream` | То же, что `auto` (WSS-эндпоинт в API отсутствует) |
-| `poll` | REST `create` + `sendMessage` + `waitForResponse` |
+| `auto` (по умолчанию) | SSE primary, REST-поллинг при сбое транспорта |
+| `stream` | Только SSE (сбои пробрасываются вызывающему) |
+| `poll` | Сразу REST-поллинг через `chats.pollForResponse` |
 | `off` | Fire-and-forget: `ask` создаёт чат, отправляет промпт и сразу возвращает `chat_uuid` |
 
-Готовый пример — в [`examples/stream-example.ts`](examples/stream-example.ts).
-
-### Text-flow transport (`llm/*`)
-
-`0.4.0` подключает SDK к новым v1-эндпоинтам `llm/*` и SSE-инфраструктуре `sse.syntx.ai`, которые уже использует прод-SPA. Это основной путь для text-scope чатов:
+### Архитектура text-flow (`llm/*`)
 
 ```
 MCP-клиент
    │ ask / stream-message / send-message / wait-for-response
    ▼
 mcp/tools/chats.ts
-   │ routeTextFlow() = scope==='text' && !legacyTextTransport
+   │ (text-scope → всегда llm/*)
    ▼
 LlmResource
    │ generate → POST /api/v1/llm/generate
@@ -694,15 +698,7 @@ LlmResource
    │              └ on error/timeout → chats.pollForResponse() (fallback)
 ```
 
-SSE — primary transport. На сбое соединения, не-2xx от `llm/chats/{id}/stream`, истечении `sseTimeoutMs` (по умолчанию 60% от `pollTimeout`) или `event: error` SDK автоматически переключается на REST-поллинг через `chats.pollForResponse` и возвращает результат как обычно. Для пользователя разницы нет.
-
-Откат на старый путь (`POST /chats/{id}/messages` + REST-поллинг, поведение `0.3.0`):
-
-```bash
-SYNTX_LEGACY_TEXT_TRANSPORT=true npx syntx-mcp
-```
-
-Полезно, если в вашей среде `sse.syntx.ai` недоступен, и нужно быстро вернуть работоспособность. Для image/video/audio скоупов флаг не действует — эти пути по-прежнему идут через `chats/{id}/messages`.
+Legacy-путь `POST /chats/{id}/messages` с `objects[]` и `model_type` удалён в v0.4.0 — для text-scope остался только `llm/*`. Не-text скоупы (image/video/audio) обслуживаются отдельными инструментами `generate-image` / `generate-audio` / `generate-video`.
 
 Полный справочник типов — в `src/types.ts`. Внутреннее устройство слоёв — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -714,9 +710,8 @@ SYNTX_LEGACY_TEXT_TRANSPORT=true npx syntx-mcp
 
 | Файл | Описание |
 |---|---|
-| `chat-example.ts` | Прямая работа с чатами через SDK |
+| `chat-example.ts` | Прямая работа с чатами через SDK (text-flow `llm/*`) |
 | `mcp-client-example.ts` | Подключение к серверу как MCP-клиент и вызов `ask` |
-| `stream-example.ts` | One-shot WSS-стриминг ответа в консоль |
 | `claude-desktop-config.json` | Готовый конфиг для Claude Desktop |
 
 Запуск примеров:
@@ -764,8 +759,8 @@ TRANSPORT   src/transport/   ── stdio.ts · http.ts
 MCP SERVER  src/mcp/         ── server.ts · registry.ts · tools/ · resources/ · prompts/
         │  вызовы SDK
         ▼
-SDK         src/             ── SyntxClient · resources/ · auth · websocket
-        │  fetch / WebSocket
+SDK         src/             ── SyntxClient · resources/ · auth
+        │  fetch
         ▼
 syntx.ai API   https://api.syntx.ai
 ```
@@ -778,7 +773,7 @@ syntx.ai API   https://api.syntx.ai
 
 - [x] Транскрипция аудио как инструмент (`transcribe`)
 - [x] Загрузка файлов (`upload-files`) с поддержкой бинарных данных в MCP
-  - [x] Стриминг ответов через WebSocket (см. `stream-message`, `chats.streamResponse`, `SYNTX_STREAM_MODE`)
+  - [x] Стриминг ответов через SSE (см. `stream-message`, `llm.waitForResponse`, `SYNTX_STREAM_MODE`)
   - [x] CI: GitHub Actions (`npm run typecheck && npm run build` на Node 18/20/22)
   - [x] Аутентифицированный HTTP-транспорт (`MCP_HTTP_TOKEN` + Host/Origin allow-list)
   - [ ] OAuth-flow для получения токена из CLI

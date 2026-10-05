@@ -1,16 +1,5 @@
 import { BaseClient } from '../client';
-import type { AIService, AIModel, ModelInfoV2 } from '../types';
-
-export interface GetModelInfoParams {
-  ai_name: string;
-  model_type: string;
-  batch_size?: number;
-  quality?: string;
-  video_duration?: number;
-  chars_count?: number;
-  mode?: string;
-  [key: string]: string | number | boolean | undefined;
-}
+import type { AIService, AIModel } from '../types';
 
 /**
  * Resource for AI services and models.
@@ -32,13 +21,5 @@ export class AIResource {
    */
   async listModels(): Promise<AIModel[]> {
     return this.client.get<AIModel[]>('/api/v1/ai/models');
-  }
-
-  /**
-   * Get detailed info about a specific model (v2 endpoint).
-   * GET /api/v2/get_model_info
-   */
-  async getModelInfo(params: GetModelInfoParams): Promise<ModelInfoV2> {
-    return this.client.get<ModelInfoV2>('/api/v2/get_model_info', params);
   }
 }

@@ -42,15 +42,15 @@
 ┌───────────────┴──────────────────────────────────────────────────┐
 │  SDK LAYER   (src/ — корень)                                     │
 │  client.ts (BaseClient) · syntx-client.ts (SyntxClient) ·        │
-│  auth.ts · websocket.ts · errors.ts · types.ts · resources/      │
+│  auth.ts · errors.ts · types.ts · resources/                      │
 └───────────────▲──────────────────────────────────────────────────┘
-                │ fetch / WebSocket
+                │ fetch
 ┌───────────────┴──────────────────────────────────────────────────┐
 │  syntx.ai API   (https://api.syntx.ai)                           │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Направление зависимостей — строго вниз. Транспорт зависит от MCP-ядра, MCP-ядро зависит от SDK, SDK зависит только от платформы (`fetch`, `WebSocket`). Слои выше ничего не знают о деталях реализации слоёв ниже, кроме публичного контракта.
+Направление зависимостей — строго вниз. Транспорт зависит от MCP-ядра, MCP-ядро зависит от SDK, SDK зависит только от платформы (`fetch`). Слои выше ничего не знают о деталях реализации слоёв ниже, кроме публичного контракта.
 
 ---
 
@@ -65,7 +65,6 @@ syntx-ai-mcp/
 │   ├── client.ts                 # BaseClient: HTTP (get/post/patch/delete)
 │   ├── syntx-client.ts           # SyntxClient: агрегатор ресурсов
 │   ├── auth.ts                   # SyntxAuth: токены + OAuth-хелперы
-│   ├── websocket.ts              # SyntxWebSocket: стриминг
 │   ├── errors.ts                 # SyntxAPIError, SyntxAuthError
 │   ├── types.ts                  # Все доменные типы
 │   ├── resources/                # AIResource, ChatsResource, DesignResource ...
@@ -85,7 +84,7 @@ syntx-ai-mcp/
 │   │   │   ├── index.ts          # allTools[] — единый реестр инструментов
 │   │   │   ├── auth.ts           # set-token, validate-token, whoami
 │   │   │   ├── chats.ts          # list-chats, create-chat, get-messages, send-message, wait-for-response
-│   │   │   ├── ai.ts             # list-ai-services, list-models, get-model-info
+│   │   │   ├── ai.ts             # list-ai-services, list-models
 │   │   │   ├── design.ts         # generate-image
 │   │   │   ├── user.ts           # get-profile, get-balance, get-subscription
 │   │   │   ├── files.ts          # list-uploaded-files, delete-file
@@ -130,7 +129,7 @@ syntx-ai-mcp/
 | `SYNTX_TOKEN` | `string` | — | Bearer-токен (обязателен для большинства операций) |
 | `SYNTX_BASE_URL` | `string` | `https://api.syntx.ai` | Базовый URL API |
 | `SYNTX_TIMEOUT` | `number` | `30000` | Таймаут HTTP, мс |
-| `SYNTX_LANG` | `string` | `en` | Язык (для WebSocket/локалей) |
+| `SYNTX_LANG` | `string` | `en` | Язык (для локалей) |
 | `SYNTX_DEFAULT_AI` | `string` | `chatgpt` | AI-сервис по умолчанию для чатов |
 | `SYNTX_DEFAULT_MODEL` | `string` | — | Модель по умолчанию |
 | `SYNTX_POLL_INTERVAL` | `number` | `5000` | Интервал polling ответа, мс |
@@ -153,7 +152,6 @@ syntx-ai-mcp/
 | `validate-token` | Проверить валидность токена | read |
 | `list-ai-services` | Доступные AI-сервисы | read |
 | `list-models` | Модели с ограничениями | read |
-| `get-model-info` | Детальная информация о модели | read |
 | `list-chats` | Список чатов (с фильтрами) | read |
 | `create-chat` | Создать чат | write |
 | `get-messages` | История сообщений чата | read |
@@ -203,9 +201,11 @@ MCP-клиент ──CallTool("ask", {prompt})──▶ MCP Server
                                             │
                                             ▼
                    1. Валидация args по JSON Schema
-                   2. McpContext.syntx.chats.create({title})
-                   3. McpContext.syntx.chats.sendMessage(uuid, ai, [{object_type:"text",...}])
-                   4. McpContext.syntx.chats.waitForResponse(uuid, {pollInterval, timeout})
+                   2. McpContext.syntx.chats.create({title, scope:"text"})
+                   3. McpContext.syntx.llm.generate({prompt, aiName, modelType, chatUuid})
+                      → POST /api/v1/llm/generate
+                   4. McpContext.syntx.llm.waitForResponse(uuid, {llmSseBaseUrl, fallbackPoll})
+                      → SSE на sse.syntx.ai с fallback на chats.pollForResponse
                    5. Формирование CallToolResult { content: [{type:"text", text}] }
                                             │
 MCP-клиент ◀──result────────────────────────┘

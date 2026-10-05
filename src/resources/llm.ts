@@ -62,8 +62,12 @@ export class LlmResource {
   }
 
   async generate(params: LlmGenerateParams): Promise<LlmGenerateResponse> {
-    // Live SPA capture (2026-09-21):
-    //   body: { chat_uuid?, text, model, thinking?, plan?, deep_research?, tools? }
+    // Live SPA capture (2026-10-04, `text.js` → `Le()`):
+    //   body: {
+    //     chat_uuid?, text, model,
+    //     thinking?, plan?, deep_research?, tools?, system_prompt?,
+    //     files?: [{ object_type: 'image'|'file', object_url }]
+    //   }
     //   query: ai_name=…
     const model = params.modelType ?? 'gpt-5.6-luna';
     const body: Record<string, unknown> = { text: params.prompt, model };
@@ -72,6 +76,8 @@ export class LlmResource {
     if (params.plan !== undefined) body.plan = params.plan;
     if (params.deepResearch !== undefined) body.deep_research = params.deepResearch;
     if (params.tools) body.tools = params.tools;
+    if (params.systemPrompt) body.system_prompt = params.systemPrompt;
+    if (params.files && params.files.length > 0) body.files = params.files;
     return this.client.post<LlmGenerateResponse>(
       '/api/v1/llm/generate',
       body,

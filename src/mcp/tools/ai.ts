@@ -157,46 +157,4 @@ export const aiTools: SyntxTool[] = [
       }),
     ),
   },
-  {
-    name: 'get-model-info',
-    description: 'Return detailed information about a specific AI model (pricing/cost params, limits).',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        ai_name: { type: 'string', description: 'AI service name, e.g. "chatgpt".' },
-        model_type: { type: 'string', description: 'Model identifier, e.g. "gpt-5-mini".' },
-        batch_size: { type: 'number' },
-        quality: { type: 'string' },
-        video_duration: { type: 'number' },
-        chars_count: { type: 'number' },
-        mode: { type: 'string' },
-      },
-      required: ['ai_name', 'model_type'],
-      additionalProperties: false,
-    },
-    handler: wrapSdk(
-      'get-model-info',
-      async (
-        args: {
-          ai_name: string;
-          model_type: string;
-          batch_size?: number;
-          quality?: string;
-          video_duration?: number;
-          chars_count?: number;
-          mode?: string;
-        },
-        ctx,
-      ) =>
-        ctx.syntx.ai.getModelInfo({
-          ai_name: args.ai_name,
-          model_type: args.model_type,
-          batch_size: args.batch_size,
-          quality: args.quality,
-          video_duration: args.video_duration,
-          chars_count: args.chars_count,
-          mode: args.mode,
-        }),
-    ),
-  },
 ];

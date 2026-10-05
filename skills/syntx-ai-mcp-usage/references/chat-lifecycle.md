@@ -15,7 +15,9 @@ The fastest path when you only need the assistant reply and have no plans to con
      │                          ├───────────────────────►│
      │                          │◄────── chat uuid ──────┤
      │                          │                        │
-     │                          │  sendMessage + wait    │
+     │                          │  llm/generate + wait   │
+     │                          │  (SSE on sse.syntx.ai, │
+     │                          │   REST fallback)       │
      │                          ├───────────────────────►│
      │                          │◄─── assistant reply ───┤
      │  { text, chat_uuid }     │                        │
@@ -40,7 +42,7 @@ The persistent-chat pattern. Use when follow-ups are likely or the chat should o
      │                                │                     │
      │  send-message(chat_id, p0)     │                     │
      ├────────────────────────────────►│                     │
-     │                                │  POST messages      │
+     │                                │  POST llm/generate  │
      │                                ├────────────────────►│
      │  { status: queued }            │                     │
      │◄───────────────────────────────┤                     │

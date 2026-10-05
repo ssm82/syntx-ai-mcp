@@ -28,8 +28,8 @@ function toolRowsInSpan(doc: string, startHeading: string, endHeading: string): 
   return [...new Set(names)].sort();
 }
 
-test('allTools exposes exactly 38 tools', () => {
-  assert.equal(allTools.length, 38);
+test('allTools exposes exactly 37 tools', () => {
+  assert.equal(allTools.length, 37);
 });
 
 test('all tool names are unique', () => {

@@ -296,9 +296,10 @@ test('pollForResponse waits while any object remains incomplete (text done, medi
 // ── MCP wait-for-response tool: rendered payload (Slice 4) ──────────────────
 
 /**
- * Invoke the MCP `wait-for-response` handler with a stubbed ChatsResource so
- * the test does not need a live network. The handler still goes through
- * `createMcpContext` for realism (config defaults, etc.).
+ * Invoke the MCP `wait-for-response` handler with a stubbed
+ * `LlmResource.waitForResponse` (the text-flow path) so the test does not
+ * need a live network. The handler still goes through `createMcpContext`
+ * for realism (config defaults, etc.).
  */
 async function callWaitForResponse(
   pages: Message[][],
@@ -315,9 +316,22 @@ async function callWaitForResponse(
     defaultAI: 'chatgpt',
     defaultModel: undefined,
     streamMode: 'poll',
-    legacyTextTransport: true,
   } as Parameters<typeof createMcpContext>[0]);
   (ctx.syntx as unknown as { chats: ChatsResource }).chats = resourceWith(client);
+  // Bypass the SSE primary and go straight to the REST polling fallback,
+  // which is the same code path the legacy test exercised.
+  (ctx.syntx as unknown as {
+    llm: { waitForResponse: typeof ctx.syntx.llm.waitForResponse };
+  }).llm = {
+    waitForResponse: (chatId: string, opts?: Parameters<typeof ctx.syntx.llm.waitForResponse>[1]) => {
+      const fallback = opts?.fallbackPoll;
+      if (!fallback) throw new Error('test setup: missing fallbackPoll');
+      return fallback(chatId, {
+        timeout: opts?.timeout ?? 5000,
+        signal: opts?.signal,
+      });
+    },
+  };
   const tool = chatsTools.find((t) => t.name === 'wait-for-response');
   if (!tool) throw new Error('wait-for-response tool not found');
   const result = await tool.handler(args, ctx);
