@@ -148,13 +148,21 @@ export const aiTools: SyntxTool[] = [
         search?: string;
       },
       AIModel[]
-    >('list-models', async (args, ctx) =>
-      filterModels(await ctx.syntx.ai.listModels(), {
+    >('list-models', async (args, ctx) => {
+      // Text models are sourced from the dedicated LLM catalog
+      // (GET /api/v1/llm/models?enabled_only=true) rather than the generic
+      // AI catalog, so they reflect the same set the SPA text-flow picker
+      // sees. Other scopes keep coming from /api/v1/ai/models.
+      const source =
+        args.scope === 'text'
+          ? ((await ctx.syntx.llm.listModels({ enabled_only: true })) as unknown as AIModel[])
+          : await ctx.syntx.ai.listModels();
+      return filterModels(source, {
         scope: args.scope,
         ai_name: args.ai_name,
         active_only: args.active_only === undefined ? true : args.active_only,
         search: args.search,
-      }),
-    ),
+      });
+    }),
   },
 ];
