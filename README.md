@@ -66,7 +66,7 @@
 
 | Группа | Что входит |
 |---|---|
-| 🛠️ **38 инструментов** | Идентификация, чаты, генерация медиа (изображения, аудио, видео), транскрипция, каталог, аккаунт, файлы, проекты (папки) |
+| 🛠️ **49 инструментов** | Идентификация, чаты, генерация медиа (изображения, аудио, видео), транскрипция, каталог, аккаунт, файлы, проекты, тарифы/цены, discovery (тренды/события), улучшение промптов |
 | 🔌 **2 транспорта** | stdio (по умолчанию) и stateless HTTP/SSE |
 | 🔐 **Токен в рантайме** | Задавайте токен без перезапуска (`set-token`); проверяйте статус через `whoami` |
 | 🧱 **Типобезопасность** | Полная типизация TypeScript, JSON Schema для каждого инструмента |
@@ -503,7 +503,7 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 
 | Инструмент | Описание | Параметры |
 |---|---|---|
-| `list-projects` | Список проектов для scope (`GET /api/v1/folders/{scope}/list`) | `scope?` (`text` по умолчанию; `text` / `image` / `video` / `audio`) |
+| `list-projects` | Список проектов для scope (`GET /api/v1/folders/{scope}/list`). Возвращает конверт `{folders: Folder[], pagination: Pagination}` — не голый массив. | `scope?` (`text` по умолчанию; `text` / `image` / `video` / `audio`) |
 | `create-project` | Создать проект (a.k.a. папку) на syntx.ai; опционально сразу добавить чаты. | `title`*, `scope?` (`text` по умолчанию), `color?` (`#9C9C9C` по умолчанию), `chat_uuids?` |
 | `add-chats-to-project` | Добавить один или несколько существующих чатов в проект (`POST /api/v1/folders/{folder_uuid}/add`). | `folder_uuid`*, `chat_uuids`* (≥ 1, `uniqueItems`) |
 | `remove-chats-from-project` | Убрать чаты из проекта (`POST /api/v1/folders/{folder_uuid}/remove`, bare-массив UUID). | `folder_uuid`*, `chat_uuids`* (≥ 1, `uniqueItems`) |

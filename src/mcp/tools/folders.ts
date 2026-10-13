@@ -16,7 +16,8 @@ export const foldersTools: SyntxTool[] = [
     description:
       'List projects (a.k.a. folders) for a given scope. Mirrors `syntx.folders.listTextFolders` ' +
       '/ `listImageFolders` / `listVideoFolders` / `listAudioFolders`. Hits ' +
-      '`GET /api/v1/folders/{scope}/list`. Returns an array of `Folder` items.',
+      '`GET /api/v1/folders/{scope}/list`. Returns a `{folders: Folder[], pagination: Pagination}` ' +
+      'envelope — not a bare array.',
     inputSchema: {
       type: 'object',
       properties: {
