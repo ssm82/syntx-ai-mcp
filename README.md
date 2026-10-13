@@ -289,7 +289,7 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 
 ## Инструменты (Tools)
 
-Все 38 инструментов принимают JSON-аргументы и возвращают структурированный результат. Текстовые ответы — это JSON-снимки данных API; ошибки возвращаются с `isError: true` (без обрыва канала).
+Все 49 инструментов принимают JSON-аргументы и возвращают структурированный результат. Текстовые ответы — это JSON-снимки данных API; ошибки возвращаются с `isError: true` (без обрыва канала).
 
 ### Идентификация и токен
 
@@ -297,6 +297,8 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 |---|---|---|
 | `whoami` | Идентификационная *проверка*: `{ authenticated, user }`. **Никогда не возвращает ошибку** при отсутствии/невалидности (401/403) токена — сообщает `authenticated: false`. Реальные сбои (сеть, 5xx) всё же дают `isError`. | — |
 | `get-profile` | Полный профиль пользователя; при отсутствии токена возвращает понятную MCP-ошибку. | — |
+| `list-auth-identities` | Связанные внешние идентичности (Telegram, email, …) с `provider`, `email`, `username`, `linked_at`. Только документированные поля; всё, что upstream добавит сверх этого, отбрасывается на границе SDK. | — |
+| `get-chatwoot-unread` | Состояние непрочитанных сообщений в support-канале: `{contact_found, has_unread}`. HMAC `chatwoot_hmac`, которым гейтится вызов, не выходит наружу. | — |
 | `set-token` | Установить/заменить токен в рантайме (только в памяти — не переживает рестарт). | `token`* |
 
 > `whoami` и `get-profile` различаются **семантикой ошибок**, а не составом полей (оба берут данные из одного `user.me()`). Используйте `whoami` для проверки статуса аутентификации без риска получить ошибку, `get-profile` — когда нужен полный профиль и готов обработать ошибку при отсутствии токена.
@@ -441,12 +443,14 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 |---|---|
 | `get-profile` | Профиль (имя, email, аватар, auth-сервисы) |
 | `get-balance` | Баланс токенов |
+| `get-tokens-history` | История трат токенов (cursor-пагинация) |
 
 ### Файлы
 
 | Инструмент | Описание | Параметры |
 |---|---|---|
 | `list-uploaded-files` | Список загруженных файлов | `scope?`, `page?`, `page_size?` |
+| `list-generated-files` | Список сгенерированных файлов (image/video/audio) | `scopes?`, `page?`, `page_size?` |
 | `upload-files` | Загрузить до 10 файлов (≤ 100 МБ каждый) | `files`*, `check_duplicates?` |
 | `delete-file` | Удалить файл | `file_id`* |
 
@@ -532,6 +536,31 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
   }
 }
 ```
+
+### Тарифы и цены
+
+| Инструмент | Описание | Параметры |
+|---|---|---|
+| `list-tariffs` | Тарифы (price list) для `monthly` / `annual` | `period?` |
+| `list-token-pricing` | Прайс per-model (`{items: [{id, cost}]}`) | — |
+
+### Discovery и события
+
+| Инструмент | Описание | Параметры |
+|---|---|---|
+| `list-trend-categories` | Категории домашней ленты (`{categories: [{slug, name}]}`) | — |
+| `list-trend-tags` | Теги домашней ленты (часто пусто) | — |
+| `list-events` | Лента событий (промо, milestones) | `page?`, `page_size?` |
+
+### Улучшение промптов
+
+| Инструмент | Описание | Параметры |
+|---|---|---|
+| `get-prompt-enhancer-cost` | Стоимость улучшения промпта для данной модели | `model_type`* |
+| `start-prompt-enhancement` | Запустить задачу улучшения (captcha-gated) | `prompt`*, `model_type`* |
+| `get-prompt-enhancement-task` | Прочитать результат задачи | `task_id`* |
+
+> `start-prompt-enhancement` 403-ит без `SYNTX_CAPTCHA_TOKEN` (или настроенного `captchaProvider`): endpoint `prompt-enhancer/enhance/start` попадает под rule `^prompt-enhancer\/(enhance|generate)(\/start)?$` с action `generate`.
 
 ---
 

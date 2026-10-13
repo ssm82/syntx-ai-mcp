@@ -73,6 +73,37 @@ export const filesTools: SyntxTool[] = [
     ),
   },
   {
+    name: 'list-generated-files',
+    description:
+      'List files this account has *generated* (image / video / audio) — ' +
+      'distinct from `list-uploaded-files` which lists user uploads. ' +
+      'Wraps `syntx.chats.getGeneratedFiles`. Hits `GET /api/v1/files/generated`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scopes: {
+          type: 'array',
+          items: { type: 'string', enum: ['image', 'video', 'audio'] },
+          description:
+            'Scope filter. Defaults to ["image","video","audio"] to match the web client.',
+        },
+        page: { type: 'number', minimum: 1, default: 1 },
+        page_size: { type: 'number', minimum: 1, maximum: 100, default: 20 },
+      },
+      additionalProperties: false,
+    },
+    handler: wrapSdk<
+      { scopes?: Array<'image' | 'video' | 'audio'>; page?: number; page_size?: number },
+      unknown
+    >('list-generated-files', async (args, ctx) =>
+      ctx.syntx.chats.getGeneratedFiles(
+        args.scopes ?? ['image', 'video', 'audio'],
+        args.page ?? 1,
+        args.page_size ?? 20,
+      ),
+    ),
+  },
+  {
     name: 'upload-files',
     capability: { localFileRead: true },
     description:

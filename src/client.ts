@@ -1,4 +1,34 @@
-import { SyntxAPIError, SyntxAuthError } from './errors';
+import { SyntxAPIError, SyntxAuthError, SyntxCaptchaRequiredError } from './errors';
+
+/** Challenge action the SPA asks Turnstile to attest to. */
+export type CaptchaAction = 'register' | 'generate';
+
+/** Context handed to a {@link CaptchaTokenProvider} for one token mint. */
+export interface CaptchaRequest {
+  /** Action to attest, taken from the local route table or the server challenge. */
+  action: string;
+  /** Absolute request URL, query string stripped. */
+  url: string;
+  /** Sitekey advertised by the challenge, when the server supplied one. */
+  sitekey?: string;
+  /** True when the server escalated to a human-interactive widget. */
+  interactive: boolean;
+  /** Machine-readable reason from the server challenge, when present. */
+  reason?: string;
+}
+
+/**
+ * Mints a Cloudflare Turnstile token for one gated request.
+ *
+ * The SDK deliberately ships no solver: Turnstile tokens are bound to a
+ * browser context, and standing up a headless browser inside an MCP server
+ * is an operational decision its operator has to make. Return `undefined`
+ * (or omit the provider) to decline — the SDK then surfaces
+ * {@link SyntxCaptchaRequiredError} instead of retrying.
+ */
+export type CaptchaTokenProvider = (
+  request: CaptchaRequest,
+) => Promise<string | undefined> | string | undefined;
 
 export interface SyntxClientConfig {
   /** Base URL for the API. Defaults to https://api.syntx.ai */
@@ -15,6 +45,99 @@ export interface SyntxClientConfig {
    * would double the token spend.
    */
   maxRetries?: number;
+  /**
+   * Optional Turnstile token source for the gated generative routes.
+   * When omitted the client sends no `X-Captcha-Token` and surfaces a
+   * {@link SyntxCaptchaRequiredError} on challenge instead of retrying.
+   */
+  captchaProvider?: CaptchaTokenProvider;
+}
+
+/**
+ * Routes the upstream gates behind Turnstile, mirrored verbatim from the
+ * prod-SPA request interceptor (bundle `1791811899`, table `$_e`).
+ *
+ * `POST /auth/email/send-otp` attests `register`; every generative entry
+ * point attests `generate`. Paths are matched *after* the `api/vN/`
+ * prefix is stripped, because that is what sits in front of them.
+ */
+const CAPTCHA_ROUTES: ReadonlyArray<{ re: RegExp; action: CaptchaAction }> = [
+  { re: /^auth\/email\/send-otp$/, action: 'register' },
+  { re: /^design\/generate$/, action: 'generate' },
+  { re: /^video\/generate$/, action: 'generate' },
+  { re: /^audio\/generate$/, action: 'generate' },
+  { re: /^llm\/generate$/, action: 'generate' },
+  { re: /^prompt-enhancer\/(enhance|generate)(\/start)?$/, action: 'generate' },
+];
+
+/**
+ * Challenge reasons the server escalates to a human-interactive widget.
+ * Anything outside this set (and outside the terminal set below) is
+ * retried with a silent token.
+ */
+const INTERACTIVE_REASONS = ['interactive_required', 'bot_score', 'ip_velocity'];
+
+/** Reasons no amount of re-minting will fix. */
+const TERMINAL_REASONS = ['action_mismatch', 'cdata_', 'hostname_mismatch'];
+
+/**
+ * Reduce a request path to the form the gate table is written against:
+ * origin, leading slashes and the `api/vN/` mount prefix removed, query
+ * dropped. Accepts both the SDK-style `/api/v1/…` path and the absolute
+ * URL the request layer works with.
+ */
+function normaliseRoute(path: string): string {
+  return String(path)
+    .replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '')
+    .replace(/^\/+/, '')
+    .replace(/^api\/v\d+\//, '')
+    .split('?')[0];
+}
+
+/**
+ * Challenge action for a request path, or `null` when the route is not
+ * captcha-gated. Exported so callers can pre-mint a token themselves.
+ */
+export function captchaActionFor(path: string): CaptchaAction | null {
+  const route = normaliseRoute(path);
+  return CAPTCHA_ROUTES.find((entry) => entry.re.test(route))?.action ?? null;
+}
+
+interface CaptchaChallenge {
+  action?: string;
+  reason?: string;
+  sitekey?: string;
+  interactiveAction?: string;
+  interactiveSitekey?: string;
+}
+
+/**
+ * Decide whether a 403 body is a Turnstile challenge rather than an
+ * authentication failure.
+ *
+ * A real auth rejection is a bare string detail (`{"detail":"Not
+ * authenticated"}`), so the discriminator is a *structured* detail object
+ * carrying a sitekey or action. Anything else stays an auth error — we
+ * must not misreport a credential problem as a solvable puzzle.
+ */
+function readCaptchaChallenge(body: unknown): CaptchaChallenge | null {
+  if (typeof body !== 'object' || body === null) return null;
+  const detail = (body as { detail?: unknown }).detail;
+  if (typeof detail !== 'object' || detail === null) return null;
+  const raw = detail as Record<string, unknown>;
+  const sitekey = typeof raw.sitekey === 'string' ? raw.sitekey : undefined;
+  const interactiveSitekey =
+    typeof raw.interactiveSitekey === 'string' ? raw.interactiveSitekey : undefined;
+  const action = typeof raw.action === 'string' ? raw.action : undefined;
+  if (!sitekey && !interactiveSitekey && !action) return null;
+  return {
+    action,
+    reason: typeof raw.reason === 'string' ? raw.reason : undefined,
+    sitekey,
+    interactiveAction:
+      typeof raw.interactiveAction === 'string' ? raw.interactiveAction : undefined,
+    interactiveSitekey,
+  };
 }
 
 /** Backoff schedule: base delay, growth factor, ceiling, jitter. */
@@ -67,12 +190,14 @@ export class BaseClient {
   private token: string | undefined;
   readonly timeout: number;
   readonly maxRetries: number;
+  private readonly captchaProvider: CaptchaTokenProvider | undefined;
 
   constructor(config: SyntxClientConfig = {}) {
     this.baseURL = (config.baseURL ?? 'https://api.syntx.ai').replace(/\/$/, '');
     this.token = config.token;
     this.timeout = config.timeout ?? 30000;
     this.maxRetries = Math.max(1, config.maxRetries ?? 3);
+    this.captchaProvider = config.captchaProvider;
   }
 
   setToken(token: string | undefined): void {
@@ -143,10 +268,11 @@ export class BaseClient {
   }
 
   private async handleResponse<T>(response: Response): Promise<T> {
-    if (response.status === 401 || response.status === 403) {
-      throw new SyntxAuthError(
-        `Authentication failed (${response.status})`
-      );
+    // 401 is unambiguously a credential problem; do not spend a body read
+    // on it. 403 is NOT — the upstream also returns 403 for a Turnstile
+    // challenge, so it has to be read and discriminated below.
+    if (response.status === 401) {
+      throw new SyntxAuthError('Authentication failed (401)');
     }
 
     let body: unknown;
@@ -156,6 +282,23 @@ export class BaseClient {
     } else {
       const text = await response.text();
       body = text;
+    }
+
+    if (response.status === 403) {
+      const challenge = readCaptchaChallenge(body);
+      if (challenge) {
+        throw new SyntxCaptchaRequiredError(
+          BaseClient.challengeMessage(challenge),
+          challenge.action,
+          challenge.reason,
+          challenge.sitekey,
+          challenge.interactiveAction,
+          challenge.interactiveSitekey,
+          !TERMINAL_REASONS.includes(challenge.reason ?? ''),
+          body,
+        );
+      }
+      throw new SyntxAuthError('Authentication failed (403)');
     }
 
     if (!response.ok) {
@@ -181,11 +324,18 @@ export class BaseClient {
     return body as T;
   }
 
-  private buildUrl(path: string, params?: Record<string, string | number | boolean | undefined>): string {
+  private buildUrl(
+    path: string,
+    params?: Record<string, string | number | boolean | string[] | undefined>,
+  ): string {
     const url = new URL(this.baseURL + path);
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined) {
+        if (value === undefined) return;
+        if (Array.isArray(value)) {
+          // `scope[]=video&scope[]=audio` style, used by e.g. `GET /files/generated`.
+          for (const v of value) url.searchParams.append(`${key}[]`, String(v));
+        } else {
           url.searchParams.set(key, String(value));
         }
       });
@@ -206,12 +356,99 @@ export class BaseClient {
     return { ...this.baseHeaders(), 'Content-Type': 'application/json' };
   }
 
-  async get<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
+  /** Human-readable summary for {@link SyntxCaptchaRequiredError}. */
+  private static challengeMessage(challenge: CaptchaChallenge): string {
+    const reason = challenge.reason ?? 'captcha_required';
+    const action = challenge.action ?? 'generate';
+    return (
+      `Upstream requires a Cloudflare Turnstile token for action "${action}" (reason: ${reason}). ` +
+      'Configure `captchaProvider` on the client to mint one; the SDK does not solve challenges itself.'
+    );
+  }
+
+  /**
+ * Single entry point for every request: mints a proactive token when the
+ * route is gated, then transparently replays once against an interactive
+ * challenge if — and only if — the provider can produce a token.
+ *
+ * The replay mirrors the SPA's `__captchaRetried` guard: at most one
+ * captcha-driven retry per call, so a misbehaving provider cannot spin.
+ * Transport retries (`requestWithRetry`) are unaffected — a 403 is not
+ * retryable there, so a challenge always surfaces here first.
+ */
+private async send<T>(
+  url: string,
+  makeOptions: (captchaHeaders: Record<string, string>) => RequestInit,
+  retryable: boolean,
+  timeoutOverride?: number,
+): Promise<T> {
+  const firstAttempt = await this.mintCaptcha(url, false);
+  try {
+    return await this.requestWithRetry<T>(
+      url,
+      makeOptions(firstAttempt ?? {}),
+      retryable,
+      timeoutOverride,
+    );
+  } catch (error) {
+    if (!(error instanceof SyntxCaptchaRequiredError) || !error.retryable) throw error;
+    // Mirror the SPA's escalation: mint an interactive-widget token when the
+    // reason calls for one (or the server handed us an interactive sitekey),
+    // otherwise a plain silent token is enough.
+    const wantsInteractive =
+      INTERACTIVE_REASONS.includes(error.reason ?? '') || Boolean(error.interactiveSitekey);
+    const replay = await this.mintCaptcha(url, wantsInteractive, error);
+    if (!replay) throw error;
+    return this.requestWithRetry<T>(url, makeOptions(replay), retryable, timeoutOverride);
+  }
+}
+
+  /**
+   * Ask the configured provider for a Turnstile token for `url`.
+   *
+   * Returns the header block to merge, or `undefined` when there is nothing
+   * to add (no provider, route not gated, provider declined, or the provider
+   * threw — a broken provider must not mask the original challenge).
+   */
+  private async mintCaptcha(
+    url: string,
+    interactive: boolean,
+    challenge?: SyntxCaptchaRequiredError,
+  ): Promise<Record<string, string> | undefined> {
+    if (!this.captchaProvider) return undefined;
+    const action = challenge?.action ?? captchaActionFor(url);
+    if (action === null || action === undefined) return undefined;
+
+    let token: string | undefined;
+    try {
+      token = await this.captchaProvider({
+        action,
+        url: url.split('?')[0],
+        sitekey: challenge?.interactiveSitekey ?? challenge?.sitekey,
+        interactive,
+        reason: challenge?.reason,
+      });
+    } catch {
+      return undefined;
+    }
+    if (!token) return undefined;
+
+    return interactive
+      ? { 'X-Captcha-Token': token, 'X-Captcha-Widget': 'interactive' }
+      : { 'X-Captcha-Token': token };
+  }
+
+  async get<T>(
+    path: string,
+    params?: Record<string, string | number | boolean | string[] | undefined>,
+  ): Promise<T> {
     // GETs are idempotent — safe to retry on transient failures.
-    return this.requestWithRetry<T>(this.buildUrl(path, params), {
-      method: 'GET',
-      headers: this.baseHeaders(),
-    }, true);
+    const url = this.buildUrl(path, params);
+    return this.send<T>(
+      url,
+      (captcha) => ({ method: 'GET', headers: { ...this.baseHeaders(), ...captcha } }),
+      true,
+    );
   }
 
   /**
@@ -274,11 +511,16 @@ export class BaseClient {
     body?: unknown,
     params?: Record<string, string | number | boolean | undefined>,
   ): Promise<T> {
-    return this.requestWithRetry<T>(this.buildUrl(path, params), {
-      method,
-      headers: this.jsonHeaders(),
-      body: body ? JSON.stringify(body) : undefined,
-    }, false);
+    const url = this.buildUrl(path, params);
+    return this.send<T>(
+      url,
+      (captcha) => ({
+        method,
+        headers: { ...this.jsonHeaders(), ...captcha },
+        body: body ? JSON.stringify(body) : undefined,
+      }),
+      false,
+    );
   }
 
   async post<T>(path: string, body?: unknown, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
@@ -306,10 +548,12 @@ export class BaseClient {
    * because uploads/transcriptions routinely exceed the 30 s API default.
    */
   async postForm<T>(path: string, formData: FormData, timeoutOverride = 300000): Promise<T> {
-    return this.requestWithRetry<T>(this.baseURL + path, {
-      method: 'POST',
-      headers: this.baseHeaders(),
-      body: formData,
-    }, false, timeoutOverride);
+    const url = this.baseURL + path;
+    return this.send<T>(
+      url,
+      (captcha) => ({ method: 'POST', headers: { ...this.baseHeaders(), ...captcha }, body: formData }),
+      false,
+      timeoutOverride,
+    );
   }
 }

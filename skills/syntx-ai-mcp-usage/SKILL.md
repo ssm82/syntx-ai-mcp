@@ -26,19 +26,22 @@ Trigger on any of these conditions:
 
 ## Tool inventory — quick reference
 
-The exposed surface is **37 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 release notes](../../CHANGELOG.md) for the full removal list). They cluster into eight surfaces.
+The exposed surface is **49 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 release notes](../../CHANGELOG.md) for the full removal list). They cluster into twelve surfaces.
 
-### Auth (2)
+### Auth (4)
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
 | `set-token` | Install bearer JWT in-process | yes (fast) | Token lives in memory only; lost on restart. Rejected over HTTP transport. |
 | `whoami` | Identity check, returns `{ authenticated, user }` | yes | Never errors on missing/invalid token — reports `authenticated: false`. Sanitize before logging. |
+| `list-auth-identities` | Linked external identities (`provider`, `email`, `username`, `linked_at`) | yes | Per-provider breakdown that `get-profile` does not carry. Allowlist-projected; anything else upstream adds is dropped at the SDK boundary. |
+| `get-chatwoot-unread` | Support-channel unread state (`{contact_found, has_unread}`) | yes | Server-side gated on `chatwoot_hmac`; the HMAC itself never leaves the server. |
 
-### Identity (2)
+### Identity (3)
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
 | `get-profile` | Full profile (errors when unauthorized) | yes | Same fields as `whoami` but raises an MCP error when no token is set. |
 | `get-balance` | Token balance for the authenticated user | yes | |
+| `get-tokens-history` | Token-spend history (cursor-paginated) | yes | Pass the previous `next_cursor` (if non-null) to walk forward. |
 
 ### Model catalog (3)
 | Tool | Purpose | Blocking? | Notes |
@@ -66,10 +69,11 @@ The exposed surface is **37 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 | `stream-message` | Stream with REST polling + per-chunk notifications | yes | `mode: "auto"` / `"stream"` / `"poll"`. |
 | `cancel-message` | Cancel an in-flight message generation | yes | 404 from cancel is treated as success (race with completion). |
 
-### Files (3)
+### Files (4)
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
 | `list-uploaded-files` | List prior uploads | yes | Useful when resuming work. |
+| `list-generated-files` | List generated files (image / video / audio) | yes | Distinct from `list-uploaded-files`; queryable by `scopes` (defaults to all three). |
 | `upload-files` | Upload ≤10 files, ≤100 MB each | yes | `path` is LFI on non-stdio transport — see security caveats. |
 | `delete-file` | Delete an uploaded file by `file_id` or `url` | yes | Destructive — confirm before invoking. |
 
@@ -89,13 +93,33 @@ The exposed surface is **37 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 ### Projects (7) — `syntx://folders`
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
-| `list-projects` | List projects for a scope (`text` / `image` / `video` / `audio`) | yes | |
+| `list-projects` | List projects for a scope (`text` / `image` / `video` / `audio`) | yes | Live shape is `{folders, pagination}` (was `Folder[]` pre-2026-10-13). |
 | `create-project` | Create a project and optionally seed it with chats | yes | |
 | `add-chats-to-project` | Add chats to an existing project | yes | |
 | `remove-chats-from-project` | Remove chats from a project | yes | Inverse of `add-chats-to-project`. |
 | `update-project` | Update a project's title and/or color | yes | At least one of `title` / `color` required. |
 | `reorder-project` | Reorder a project within its scope | yes | `after_uuid` omitted/null = move to top. |
 | `delete-project` | Permanently delete a project | yes | Destructive — confirm before invoking. |
+
+### Plans (2)
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
+| `list-tariffs` | Plan tariffs (price list) for `monthly` / `annual` | yes | The server 422s on any other `period` value; the enum is pinned. |
+| `list-token-pricing` | Per-model token cost table | yes | Useful for "is this generation going to be expensive" reasoning. |
+
+### Discovery (3)
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
+| `list-trend-categories` | Home-feed categories | yes | `{categories: [{slug, name}]}`. |
+| `list-trend-tags` | Home-feed tags | yes | Often empty in the live response. |
+| `list-events` | Event feed (promotions, milestones) | yes | Page-number pagination; `total` reported. |
+
+### Prompt enhancer (3) — captcha-gated
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
+| `get-prompt-enhancer-cost` | Declare the token cost of enhancing a prompt for `model_type` | yes | 422 / `model_not_enhanceable` for unsupported models. |
+| `start-prompt-enhancement` | Start an enhancement task | yes | **Captcha-gated** (rule `^prompt-enhancer\/(enhance\|generate)(\/start)?$`, action `generate`). Without `SYNTX_CAPTCHA_TOKEN` (or a configured `captchaProvider`) the call 403s with `SyntxCaptchaRequiredError`. Returns `{task_id}`. |
+| `get-prompt-enhancement-task` | Poll an in-flight task | yes | `status` is one of `pending` / `completed` / `failed`. The enhanced text lives in `enhanced_prompt` on `completed`. |
 
 For full per-tool schemas, rely on MCP `tools/list` — they are the source of truth.
 

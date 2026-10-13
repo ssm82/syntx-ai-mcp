@@ -2,6 +2,7 @@ import { BaseClient } from '../client';
 import { SyntxAPIError, SyntxAbortError, SyntxTimeoutError } from '../errors';
 import type {
   Chat,
+  GeneratedFilesResponse,
   MessagesResponse,
   Pagination,
   InProgressResponse,
@@ -512,6 +513,33 @@ export class ChatsResource {
     pageSize: number;
   }> {
     return this.client.get('/api/v1/files/uploaded', { scope, page, page_size: pageSize });
+  }
+
+  /**
+   * List files this account has *generated* (image / video / audio), as
+   * opposed to {@link getUploadedFiles} which lists user uploads.
+   *
+   * `GET /api/v1/files/generated?scope[]=video|audio|image`
+   *
+   * Mirrors the SPA's `UploadDropdown.js` fetch:
+   * `qn.get('/files/generated',{params:{scope:['video','audio','image']}})`.
+   * `scope` defaults to `['image','video','audio']` to match the SPA.
+   * Pagination is page-number based; the response carries `has_more`
+   * for the SPA's infinite-scroll.
+   *
+   * Wire shape is unpinned; the typed surface is the minimum the SPA
+   * reads, with `[key: string]: unknown` on each item.
+   */
+  async getGeneratedFiles(
+    scopes: Array<'image' | 'video' | 'audio'> = ['image', 'video', 'audio'],
+    page = 1,
+    pageSize = 20,
+  ): Promise<GeneratedFilesResponse> {
+    return this.client.get<GeneratedFilesResponse>('/api/v1/files/generated', {
+      scope: scopes,
+      page,
+      page_size: pageSize,
+    });
   }
 
   /**

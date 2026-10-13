@@ -11,6 +11,8 @@ import { AudioResource } from './resources/audio';
 import { VideoResource } from './resources/video';
 import { AppResource } from './resources/app';
 import { LlmResource } from './resources/llm';
+import { EventsResource, TokensPricingResource, TrendsResource } from './resources/discovery';
+import { PromptEnhancerResource } from './resources/prompt-enhancer';
 
 /**
  * Main entry point for the Syntx AI SDK.
@@ -40,6 +42,10 @@ export class SyntxClient {
   readonly video: VideoResource;
   readonly app: AppResource;
   readonly llm: LlmResource;
+  readonly events: EventsResource;
+  readonly trends: TrendsResource;
+  readonly tokensPricing: TokensPricingResource;
+  readonly promptEnhancer: PromptEnhancerResource;
 
   constructor(config?: SyntxClientConfig) {
     this.client = new BaseClient(config);
@@ -57,6 +63,10 @@ export class SyntxClient {
     this.video = new VideoResource(this.client);
     this.app = new AppResource();
     this.llm = new LlmResource(this.client);
+    this.events = new EventsResource(this.client);
+    this.trends = new TrendsResource(this.client);
+    this.tokensPricing = new TokensPricingResource(this.client);
+    this.promptEnhancer = new PromptEnhancerResource(this.client);
   }
 
   /**

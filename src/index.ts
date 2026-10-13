@@ -1,8 +1,8 @@
 // ── SDK layer ───────────────────────────────────────────────────────────────
 export { SyntxClient } from './syntx-client';
-export { BaseClient, type SyntxClientConfig } from './client';
+export { BaseClient, captchaActionFor, type SyntxClientConfig, type CaptchaAction, type CaptchaRequest, type CaptchaTokenProvider } from './client';
 export { SyntxAuth } from './auth';
-export { SyntxAPIError, SyntxAuthError, SyntxAbortError, SyntxTimeoutError } from './errors';
+export { SyntxAPIError, SyntxAuthError, SyntxCaptchaRequiredError, SyntxAbortError, SyntxTimeoutError } from './errors';
 
 export * from './types';
 export { collectCompletedObjects } from './resources/chats';

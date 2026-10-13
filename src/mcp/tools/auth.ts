@@ -118,4 +118,51 @@ export const authTools: SyntxTool[] = [
       return textResult('Token updated. Use "whoami" or "validate-token" to confirm it works.');
     },
   },
+  {
+    name: 'list-auth-identities',
+    description:
+      'List the external identities linked to the current syntx.ai account ' +
+      '(Telegram, email, …). Returns a sanitised `{provider, email, username, linked_at}` ' +
+      'projection — the per-provider breakdown that `get-profile` does not carry. ' +
+      'Only the documented fields are forwarded; anything else the upstream ' +
+      'adds (and any field whose name looks credential-shaped) is dropped ' +
+      'at the SDK boundary, so a future server-side change can never leak ' +
+      'through a tool surface without an explicit SDK update.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+    async handler(_args, ctx) {
+      try {
+        const out = await ctx.syntx.auth.listIdentities();
+        return textResult(JSON.stringify(out, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'list-auth-identities');
+      }
+    },
+  },
+  {
+    name: 'get-chatwoot-unread',
+    description:
+      'Read the support-channel unread state for the current user. Returns ' +
+      '`{contact_found, has_unread}`. The endpoint is gated server-side on the ' +
+      'internal `chatwoot_hmac` identifier; the SDK never holds or forwards ' +
+      'the HMAC itself, and the response carries no credential-shaped fields. ' +
+      'Use to surface "the user has an unread support reply" without pulling ' +
+      'the full Chatwoot widget into the AI workflow.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+    async handler(_args, ctx) {
+      try {
+        const out = await ctx.syntx.auth.chatwootUnread();
+        return textResult(JSON.stringify(out, null, 2));
+      } catch (err) {
+        return toMcpError(err, 'get-chatwoot-unread');
+      }
+    },
+  },
 ];

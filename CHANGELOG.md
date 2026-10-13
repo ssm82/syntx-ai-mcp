@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Captcha support for the gated generative routes.** syntx.ai now answers
+  challenge-free requests to `llm/generate`, `design/generate`,
+  `video/generate`, `audio/generate` and `auth/email/send-otp` with **403**.
+  - `SyntxClientConfig.captchaProvider` / `BaseClient` — a
+    `CaptchaTokenProvider` seam. The SDK asks it for a Turnstile token and
+    attaches `X-Captcha-Token`; on an interactive challenge it replays once
+    with `X-Captcha-Widget: interactive`. Replay is bounded to a single
+    attempt, mirroring the SPA's `__captchaRetried` guard.
+  - `captchaActionFor(path)` — the gate table, mirrored verbatim from the
+    prod-SPA request interceptor (bundle `1791811899`). Exported so callers
+    can pre-mint a token before they need one.
+  - `McpServerConfig.captchaToken` / `SYNTX_CAPTCHA_TOKEN` — pre-minted token
+    for headless MCP deployments. Turnstile tokens are single-use and
+    short-lived, so this covers a burst, not a permanent configuration.
+  - **The SDK ships no solver.** It cannot render the widget, and standing up
+    a headless browser inside an MCP server is an operator decision. With no
+    provider configured the request goes out unaugmented and the 403
+    surfaces as {@link SyntxCaptchaRequiredError}.
 - New SDK resource `syntx.llm` exposing the `llm/*` text-flow namespace
   used by the prod-SPA bundle (`1789730449`):
   - `llm.getLimits()` → `GET /api/v1/llm/limits`. Returns `{ window_6h, window_7d }`,
@@ -65,6 +83,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New minimal SSE client `src/transport/sse.ts` (`openSse({ url, headers, signal, onEvent })`)
   — WHATWG frame parser, multi-line `data:` join, `event: ping` no-op,
   abort-aware `close()`.
+- New SDK method `syntx.auth.listIdentities()` → `GET /api/v1/auth/identities`.
+  Returns a sanitised `{provider, email, username, linked_at}` projection
+  — the per-provider breakdown that `get-profile` does not carry.
+- New SDK method `syntx.auth.chatwootUnread()` → `GET /api/v1/chatwoot/unread`.
+  Returns `{contact_found, has_unread}`. The `chatwoot_hmac` that gates the
+  call server-side never reaches the SDK or the caller.
+- New MCP tool `list-auth-identities` — wraps `syntx.auth.listIdentities()`.
+- New MCP tool `get-chatwoot-unread` — wraps `syntx.auth.chatwootUnread()`.
+- New SDK method `syntx.chats.getGeneratedFiles(scopes?, page?, pageSize?)`
+  → `GET /api/v1/files/generated?scope[]=…`. Default scope covers image
+  / video / audio to match the SPA. New MCP tool `list-generated-files`.
+- New SDK method `syntx.user.getTokensHistory({ cursor?, page_size? })`
+  → `GET /api/v1/user/tokens/history`. Cursor-paginated; `next_cursor` is
+  `null` on the last page. New MCP tool `get-tokens-history`.
+- New SDK method `syntx.plans.listTariffs(period)` →
+  `GET /api/v1/plans/tariffs?period=monthly|annual`. New MCP tool
+  `list-tariffs`. The server 422s on any other period value, so the
+  enum is pinned in the SDK and the tool schema.
+- New SDK method `syntx.tokensPricing.list()` →
+  `GET /api/v1/tokens/pricing`. New MCP tool `list-token-pricing`.
+- New SDK methods `syntx.trends.categories()` and `syntx.trends.tags()` →
+  `GET /api/v1/trends/categories` and `…/trends/tags`. New MCP tools
+  `list-trend-categories` and `list-trend-tags`.
+- New SDK method `syntx.events.list(page, pageSize)` →
+  `GET /api/v1/events`. New MCP tool `list-events`.
+- New SDK resource `syntx.promptEnhancer` with three methods:
+  - `getCost(modelType)` → `GET /api/v1/prompt-enhancer/cost?model_type=…`.
+    422 / `model_not_enhanceable` for unsupported models.
+  - `start({ prompt, model_type })` → `POST /api/v1/prompt-enhancer/enhance/start`.
+    **Captcha-gated** (rule `^prompt-enhancer\/(enhance|generate)(\/start)?$`,
+    action `generate`); without `SYNTX_CAPTCHA_TOKEN` (or a configured
+    `captchaProvider`) the call 403s with `SyntxCaptchaRequiredError`.
+  - `getTask(taskId)` → `GET /api/v1/prompt-enhancer/tasks/{id}`.
+  - New MCP tools `get-prompt-enhancer-cost`, `start-prompt-enhancement`,
+    `get-prompt-enhancement-task`.
 
 ### Changed
 
@@ -83,22 +136,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Shape drift — `GET /api/v1/notification/unread/count` now returns
+  `{ total: number }` (was declared as `{ count: number }` and was
+  `undefined` at runtime).** The `UnreadCount` type and
+  `syntx.notifications.getUnreadCount()` were aligned with the live
+  wire shape as of 2026-10-13.
+- **Shape drift — `GET /api/v1/folders/{scope}/list` now returns
+  `{ folders: Folder[]; pagination: Pagination }` (was declared as
+  `Folder[]`, which caused `list-projects` to surface the wrapper
+  verbatim).** A new `FolderListResponse` envelope type was added and
+  the four `list*Folders()` methods were retyped. The `Folder` element
+  shape itself (`uuid` / `title` / `scope` / `color` / `sort_order` /
+  `chat_count` / `chats` / `created_at` / `updated_at`) is now the
+  authoritative SDK projection; the legacy `id` / `name` / `type` keys
+  remain in the type as optional fallbacks for backward compat.
+- **Shape drift — `GET /api/v1/promo_banners` now returns
+  `{ header: PromoBanner[]; landing: PromoBanner[] }` (was declared as
+  `PromoBanner[]`, dropping both groups).** A new `PromoBannersResponse`
+  envelope type was added; `syntx.plans.getPromoBanners()` was retyped.
+  The `PromoBanner` element shape was aligned with the live fields
+  (`uuid` / `body` / `buttons[]` / `open_in_new_tab` / `order` /
+  `start_date` / `end_date` / `updated_at`); the legacy `id` / `title` /
+  `description` / `image_url` / `link` / `active` keys remain in the
+  type as optional fallbacks.
 - Internal refactor (no behavior change): shared `jsonOrAck` helper for
   mutation-tool acks and `BaseClient.jsonRequest` behind
   `post`/`patch`/`put`/`delete` — removes six duplicated if/return
   blocks and four near-identical HTTP-verb methods.
-- README / SKILL.md resynced to the real 38-tool MCP surface: removed
+- README / SKILL.md resynced to the real 49-tool MCP surface: removed
   11 ghost tool rows (auth flows, `get-settings`, `set-default-model`,
   `set-default-ai`, `get-subscription`, `generate-title`), removed the
   stale Resources / Prompts sections and MCP auth walkthroughs
   (features deleted in 0.3.0; replaced with a short "Получение токена"
-  section), added the 7 missing tool rows (`chat-exists`, `delete-chat`,
-  `get-inprogress`, `get-favorite-messages`, `generate-audio`,
-  `generate-video`, `list-projects`). New `tests/tool-inventory.test.ts`
-  pins the count and keeps both docs in sync with `allTools`.
+  section), added the missing tool rows across multiple passes. The
+  `tests/tool-inventory.test.ts` test pins the count and keeps both
+  docs in sync with `allTools`.
 
 ### Security
 
+- **Fixed — captcha 403s were misreported as authentication failures.**
+  `BaseClient.handleResponse` collapsed *every* 401 and 403 into
+  `SyntxAuthError` without reading the body, so an upstream Turnstile
+  challenge was indistinguishable from a dead token: the caller was told to
+  re-authenticate when the actual fix was to supply a captcha token. 403
+  responses are now read and discriminated — a structured `detail` carrying a
+  sitekey/action raises the new `SyntxCaptchaRequiredError` (a
+  `SyntxAPIError` subclass, so existing `catch` sites are unaffected) with
+  `action`, `reason`, `sitekey`, `interactiveAction`, `interactiveSitekey`
+  and a `retryable` flag. A genuine credential rejection — a bare string
+  `detail`, or a 401 — still raises `SyntxAuthError`, deliberately.
+- **Re-evaluated and shipped — `GET /api/v1/auth/identities`.** The 2026-10-13
+  drift sweep had declined this endpoint pending a sanitisation decision.
+  Re-walking the live response showed every field is already projected by
+  `get-profile` (`email`, `username`) plus the per-provider `linked_at`
+  timestamp. The SDK now exposes `syntx.auth.listIdentities()` (and the
+  `list-auth-identities` MCP tool) and projects onto an explicit allowlist
+  `{provider, email, username, linked_at}`. Any field whose name looks
+  credential-shaped is dropped at the SDK boundary, so a future server-side
+  addition can never leak through a tool surface without an explicit SDK
+  update. Covered by `tests/auth-identities.test.ts`.
+- **Re-evaluated and shipped — `GET /api/v1/chatwoot/unread`.** Same sweep
+  had declined this on the suspicion that wrapping it would either leak
+  `chatwoot_hmac` or make the SDK hold a credential. The endpoint is in fact
+  gated *server-side* on `chatwoot_hmac`: the SDK never holds it, never
+  forwards it, and the response is a flat `{contact_found, has_unread}` pair
+  with no credential-shaped fields. The SDK now exposes
+  `syntx.auth.chatwootUnread()` (and the `get-chatwoot-unread` MCP tool).
+  The previously-pinning `tests/security-declined-endpoints.test.ts` has
+  been removed; `tests/user-sanitize.test.ts` continues to pin
+  `chatwoot_hmac` / `ym_client_id` stripping for `get-profile`.
 - Pinned transitive dependencies via `package.json#overrides` to clear
   `npm audit --omit=dev --audit-level=high` (was 4 vulnerabilities, 2 high):
   - `fast-uri` `^3.1.8` (was 3.1.4 — host confusion / SSRF via URI parsing;

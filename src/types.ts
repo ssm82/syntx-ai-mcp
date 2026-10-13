@@ -118,6 +118,40 @@ export interface PublicUser {
 export type User = UserInternal;
 
 /**
+ * One row of `GET /api/v1/auth/identities` — a per-provider identity in the
+ * syntx.ai account ledger.
+ *
+ * Live shape: `{provider, email, username, linked_at}`. The SDK
+ * normalises each field (null for missing values, `linked_at` is a unix
+ * timestamp) and *projects* onto this allowlist — anything else the
+ * upstream adds is dropped, so a future server-side addition can never
+ * leak through a tool surface without an explicit SDK update.
+ */
+export interface LinkedIdentity {
+  /** Provider id, e.g. `"telegram"` or `"email"`. Non-secret. */
+  provider: string;
+  /** Email on the linked identity, or `null` if the provider does not have one. */
+  email: string | null;
+  /** Username on the linked identity, or `null` if the provider does not have one. */
+  username: string | null;
+  /** Unix timestamp (seconds) when the user linked this provider, or `null`. */
+  linked_at: number | null;
+}
+
+/** Response from `GET /api/v1/auth/identities`. */
+export interface LinkedIdentitiesResponse {
+  identities: LinkedIdentity[];
+}
+
+/** Response from `GET /api/v1/chatwoot/unread`. */
+export interface ChatwootUnread {
+  /** True when the user is a known contact on the support channel. */
+  contact_found: boolean;
+  /** True when the user has unread support messages. */
+  has_unread: boolean;
+}
+
+/**
  * Token balance from /api/v1/user/balance
  */
 export interface Balance {
@@ -262,9 +296,14 @@ export interface NotificationsResponse {
 
 /**
  * Unread count from /api/v1/notification/unread/count
+ *
+ * The live endpoint (2026-10-13 probe) returns `{ total: number }`, not
+ * `{ count: number }` as the v0.2.x SDK declared. The `count` key was a
+ * shape drift that broke every caller of `getUnreadCount()`. Renamed to
+ * `total` to match the wire.
  */
 export interface UnreadCount {
-  count: number;
+  total: number;
 }
 
 /**
@@ -293,12 +332,43 @@ export interface PlansResponse {
 
 /**
  * Folder item
+ *
+ * NOTE — shape drift as of 2026-10-13. The live endpoint returns
+ * `{uuid, title, scope, color, sort_order, chat_count, chats, created_at, updated_at}`.
+ * The legacy v0.2.x shape is preserved here for the `id`/`name`/`type`
+ * keys that the SPA's pre-2026 code path still emits, but new callers
+ * should treat the `uuid`/`title`/`scope` keys as authoritative. The
+ * `[key: string]: unknown` tail keeps the door open for additions
+ * without an SDK update.
  */
 export interface Folder {
-  id: string;
-  name: string;
-  type: string;
+  uuid: string;
+  title: string;
+  scope: string;
+  color: string;
+  sort_order?: number;
+  chat_count?: number;
+  chats?: unknown[];
   created_at: string;
+  updated_at?: string;
+  // legacy fields (still present in some responses, may be deprecated upstream)
+  id?: string;
+  name?: string;
+  type?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * `GET /api/v1/folders/{scope}/list` envelope.
+ *
+ * Live shape is `{folders: Folder[], pagination: Pagination}` — the
+ * v0.2.x SDK declared `Folder[]` directly, which meant the `folders`
+ * wrapper was being passed through as the first element. Renamed to a
+ * dedicated envelope.
+ */
+export interface FolderListResponse {
+  folders: Folder[];
+  pagination: Pagination;
 }
 
 /**
@@ -389,14 +459,40 @@ export interface Locale {
 
 /**
  * Promo banner
+ *
+ * NOTE — shape drift as of 2026-10-13. Live fields are
+ * `{uuid, body, buttons[], open_in_new_tab, order, start_date, end_date, updated_at}`.
+ * The legacy `id`/`title`/`description`/`image_url`/`link`/`active`
+ * shape is preserved for SPA backwards compat. Callers should treat
+ * `uuid` as the authoritative id and `body` as the user-visible text.
  */
 export interface PromoBanner {
-  id: string;
-  title: string;
-  description: string;
-  image_url: string;
-  link: string;
-  active: boolean;
+  uuid: string;
+  body: string;
+  buttons?: Array<{ label?: string; url?: string; [key: string]: unknown }>;
+  open_in_new_tab?: boolean;
+  order?: number;
+  start_date?: string;
+  end_date?: string;
+  updated_at?: string;
+  // legacy fields (present in older responses, may be deprecated upstream)
+  id?: string;
+  title?: string;
+  description?: string;
+  image_url?: string;
+  link?: string;
+  active?: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * `GET /api/v1/promo_banners` envelope. Live shape is
+ * `{header: PromoBanner[], landing: PromoBanner[]}`; the v0.2.x SDK
+ * declared `PromoBanner[]` and was effectively dropping both groups.
+ */
+export interface PromoBannersResponse {
+  header: PromoBanner[];
+  landing: PromoBanner[];
 }
 
 /**
@@ -766,4 +862,181 @@ export interface LlmGenerateFile {
 export interface LlmListModelsParams {
   enabled_only?: boolean;
   lang?: string;
+}
+
+// ─── 2026-10-13 drift additions ──────────────────────────────────────────
+
+/**
+ * One row of `GET /api/v1/user/tokens/history`.
+ *
+ * Wire shape is loose (live response unpinned); only the documented keys
+ * are typed and the rest is exposed via `[key: string]: unknown` to let
+ * callers see upstream additions without an SDK update.
+ */
+export interface TokenHistoryItem {
+  id: string;
+  amount: number;
+  type: string;
+  description?: string;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Cursor-paginated response of `GET /api/v1/user/tokens/history`.
+ *
+ * The endpoint returns `{items, page, page_size, total, next_cursor}`.
+ * Pass `cursor=next_cursor` (or `page += 1` when no cursor is given) to
+ * walk the full history. `next_cursor` is `null` on the last page.
+ */
+export interface TokenHistoryResponse {
+  items: TokenHistoryItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  next_cursor: string | null;
+}
+
+/**
+ * `GET /api/v1/files/generated?scope[]=video|audio|image` — user's
+ * generation library (vs. uploaded files, see `getUploadedFiles`).
+ *
+ * Same cursor shape as `TokenHistoryResponse` per the 2026-10-13 live
+ * probe (returns `{items, page, page_size, total, has_more}` with the
+ * `scope` filter echoed back).
+ */
+export interface GeneratedFileItem {
+  id: string;
+  url: string;
+  scope: 'video' | 'audio' | 'image';
+  filename?: string;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+export interface GeneratedFilesResponse {
+  items: GeneratedFileItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  has_more: boolean;
+}
+
+/**
+ * One row of `GET /api/v1/plans/tariffs?period=monthly|annual`.
+ * Wire shape unpinned; only the period and price surface are documented.
+ */
+export interface PlanTariff {
+  id: string;
+  period: 'monthly' | 'annual';
+  price: number;
+  currency: string;
+  title?: string;
+  description?: string;
+  features?: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * One row of `GET /api/v1/tokens/pricing` — per-model token cost table.
+ * Unpinned: `id` and `cost` are the only documented keys.
+ */
+export interface TokenPricingItem {
+  id: string;
+  cost: number;
+  [key: string]: unknown;
+}
+
+export interface TokenPricingResponse {
+  items: TokenPricingItem[];
+}
+
+/**
+ * One row of `GET /api/v1/trends/categories` — discovery surface for the
+ * home feed. Categories have a display name and a slug used in routes.
+ */
+export interface TrendCategory {
+  slug: string;
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface TrendCategoriesResponse {
+  categories: TrendCategory[];
+}
+
+/**
+ * Tags carry a `name` only; the live response is `{tags: []}`.
+ */
+export interface TrendTag {
+  name: string;
+  [key: string]: unknown;
+}
+
+export interface TrendTagsResponse {
+  tags: TrendTag[];
+}
+
+/**
+ * One row of `GET /api/v1/events` — the event feed. Only `id`,
+ * `title`, and `created_at` are documented; the rest is forwarded
+ * through `[key: string]: unknown`.
+ */
+export interface EventItem {
+  id: string;
+  title: string;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+export interface EventsResponse {
+  items: EventItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+// ─── prompt-enhancer (captcha-gated) ─────────────────────────────────────
+
+/**
+ * `GET /api/v1/prompt-enhancer/cost` — declare the token cost of
+ * enhancing a prompt for a given model. The endpoint is
+ * 422/`model_not_enhanceable` for models that don't support it.
+ */
+export interface PromptEnhancerCostResponse {
+  model_type: string;
+  cost: number;
+  enhanceable: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * `POST /api/v1/prompt-enhancer/enhance/start` — fire-and-poll.
+ * Returns the task id used by {@link PromptEnhancerResource.getTask}.
+ *
+ * The body is forwarded verbatim; the server enforces captcha
+ * (Turnstile, action `generate`) so unaugmented calls 403 with a
+ * structured `detail`. The task resolves to a `{enhanced_prompt}`
+ * string.
+ */
+export interface StartPromptEnhancementParams {
+  prompt: string;
+  model_type: string;
+  [key: string]: string | number | boolean | undefined;
+}
+
+export interface StartPromptEnhancementResponse {
+  task_id: string;
+}
+
+/**
+ * `GET /api/v1/prompt-enhancer/tasks/{id}` — task result envelope.
+ * `status` is one of `pending` | `completed` | `failed`.
+ */
+export interface PromptEnhancementTask {
+  id: string;
+  status: 'pending' | 'completed' | 'failed';
+  enhanced_prompt?: string;
+  error?: string;
+  [key: string]: unknown;
 }

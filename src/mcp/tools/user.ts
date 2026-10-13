@@ -40,4 +40,27 @@ export const userTools: SyntxTool[] = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: wrapSdk('get-balance', async (_args, ctx) => ctx.syntx.user.getBalance()),
   },
+  {
+    name: 'get-tokens-history',
+    description:
+      'Cursor-paginated token-spend history. Wraps `syntx.user.getTokensHistory`. ' +
+      'Hits `GET /api/v1/user/tokens/history`. Pass the previous page\'s ' +
+      '`next_cursor` (if non-null) to walk forward; `null` means the last page.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cursor: { type: 'string', description: 'Cursor from the previous page. Omit on the first call.' },
+        page_size: { type: 'number', minimum: 1, maximum: 100, default: 20 },
+      },
+      additionalProperties: false,
+    },
+    handler: wrapSdk<{ cursor?: string; page_size?: number }, unknown>(
+      'get-tokens-history',
+      async (args, ctx) =>
+        ctx.syntx.user.getTokensHistory({
+          cursor: args.cursor,
+          page_size: args.page_size ?? 20,
+        }),
+    ),
+  },
 ];

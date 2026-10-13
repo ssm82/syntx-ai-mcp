@@ -4,10 +4,13 @@ import { SyntxAuthError } from './errors';
 import type {
   AuthStart,
   AuthTokenStatus,
+  ChatwootUnread,
   EmailOtpOptions,
   EmailOtpSendResult,
   EmailOtpVerifyResult,
   GoogleTokenResponse,
+  LinkedIdentitiesResponse,
+  LinkedIdentity,
 } from './types';
 
 /** base64url-encode without padding (RFC 7636 §4.2). */
@@ -391,4 +394,75 @@ export class SyntxAuth {
       `Telegram auth timed out after ${timeoutMs}ms. User did not press Start in the bot.`,
     );
   }
+
+  /**
+   * List every external identity linked to the current syntx.ai account.
+   *
+   * Calls `GET /api/v1/auth/identities` and returns the sanitised
+   * `{provider, email, username, linked_at}` projection. The live
+   * `get-profile` tool already exposes the email and username; this method
+   * adds the per-provider breakdown (which providers are linked and when)
+   * that the profile does not carry.
+   *
+   * The projection is an explicit allowlist: anything else the upstream
+   * returns is dropped. In particular the projection refuses to forward
+   * any field whose name looks secret-shaped (HMAC / token / API-key
+   * conventions) so a future server-side addition can never leak through
+   * a tool surface without an explicit SDK update.
+   */
+  async listIdentities(): Promise<LinkedIdentitiesResponse> {
+    const raw = await this.client.get<{
+      identities?: ReadonlyArray<Record<string, unknown>>;
+    }>('/api/v1/auth/identities');
+    const list = Array.isArray(raw?.identities) ? raw.identities : [];
+    return { identities: list.map((row) => toPublicLinkedIdentity(row)) };
+  }
+
+  /**
+   * Read the current support-channel unread state.
+   *
+   * Calls `GET /api/v1/chatwoot/unread`. The endpoint is gated server-side
+   * on `user.chatwoot_hmac`, an internal identifier the SDK never holds or
+   * forwards; the response is a flat `{contact_found, has_unread}` pair
+   * with no credential-shaped fields.
+   *
+   * Useful for surfacing "you have an unread support reply" without
+   * pulling the full Chatwoot widget into the AI workflow. The HMAC
+   * itself is never returned to the caller.
+   */
+  async chatwootUnread(): Promise<ChatwootUnread> {
+    return this.client.get<ChatwootUnread>('/api/v1/chatwoot/unread');
+  }
+}
+
+/** Forward-compat: drop any field whose name looks credential-shaped. */
+const SECRET_LIKE_FIELD = /(?:^|_)(secret|token|api[_-]?key|hmac|hmac_key|client_secret)(?:$|_)/i;
+
+function stripSecretLikeFields(obj: Record<string, unknown>): Record<string, unknown> {
+  for (const key of Object.keys(obj)) {
+    if (SECRET_LIKE_FIELD.test(key)) {
+      delete obj[key];
+    }
+  }
+  return obj;
+}
+
+/**
+ * Project a raw `auth/identities` row onto the public {@link LinkedIdentity}
+ * shape. Defends in depth against:
+ *  - the server adding a new field without an SDK update (allowlist projection);
+ *  - the server ever returning a credential-shaped field by accident
+ *    (the secret-name regex drops it before projection).
+ */
+function toPublicLinkedIdentity(raw: Readonly<Record<string, unknown>>): LinkedIdentity {
+  const scrubbed = stripSecretLikeFields({ ...raw });
+  const linkedAtRaw = scrubbed.linked_at;
+  const linked_at =
+    typeof linkedAtRaw === 'number' && Number.isFinite(linkedAtRaw) ? linkedAtRaw : null;
+  return {
+    provider: typeof scrubbed.provider === 'string' ? scrubbed.provider : '',
+    email: typeof scrubbed.email === 'string' ? scrubbed.email : null,
+    username: typeof scrubbed.username === 'string' ? scrubbed.username : null,
+    linked_at,
+  };
 }

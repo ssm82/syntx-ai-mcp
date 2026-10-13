@@ -28,6 +28,13 @@ export function createMcpContext(config: McpServerConfig, requestToken?: string)
     token: requestToken ?? config.token,
     baseURL: config.baseURL,
     timeout: config.timeout,
+    // The upstream gates every generative route behind Turnstile. MCP has no
+    // browser to solve one, so the only lever an operator has is a pre-minted
+    // token. Returning it unconditionally is safe: `BaseClient` still decides
+    // which routes ask for one, and a non-gated route simply never calls us.
+    captchaProvider: config.captchaToken
+      ? () => config.captchaToken as string
+      : undefined,
   });
 
   return {

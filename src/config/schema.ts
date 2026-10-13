@@ -62,6 +62,22 @@ export interface McpServerConfig {
    * hits this endpoint frequently, so the SDK caches it for a short window.
    */
   listLlmModelsCacheMs: number;
+  /**
+   * Pre-minted Cloudflare Turnstile token for the gated generative routes.
+   *
+   * syntx.ai answers challenge-free requests to `llm/generate`,
+   * `design/generate`, `video/generate`, `audio/generate` and
+   * `auth/email/send-otp` with **403**. The SDK cannot render the widget, so
+   * an operator has to supply tokens out of band.
+   *
+   * Caveat: Turnstile tokens are single-use and short-lived (~5 min), so a
+   * static value only works for a burst and cannot be a permanent config.
+   * Leave unset and expect {@link SyntxCaptchaRequiredError} until a
+   * refreshing provider is wired — that error is the honest outcome, and it
+   * is strictly better than the previous behaviour where the same 403 was
+   * misreported as an authentication failure.
+   */
+  captchaToken?: string;
 }
 
 /** Sensible defaults applied when an environment variable is absent. */
@@ -97,4 +113,5 @@ export const ENV_KEYS = {
   streamMode: 'SYNTX_STREAM_MODE',
   llmSseBaseUrl: 'SYNTX_LLM_SSE_BASE_URL',
   listLlmModelsCacheMs: 'SYNTX_LLM_MODELS_CACHE_MS',
+  captchaToken: 'SYNTX_CAPTCHA_TOKEN',
 } as const;

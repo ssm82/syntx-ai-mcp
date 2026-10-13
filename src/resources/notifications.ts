@@ -1,5 +1,5 @@
 import { BaseClient } from '../client';
-import type { NotificationsResponse } from '../types';
+import type { NotificationsResponse, UnreadCount } from '../types';
 
 export interface ListNotificationsParams {
   limit?: number;
@@ -23,10 +23,15 @@ export class NotificationsResource {
 
   /**
    * Get unread notifications count.
-   * GET /api/v1/notification/unread/count
+   *
+   * `GET /api/v1/notification/unread/count`
+   *
+   * The live endpoint returns `{total: number}`. The v0.2.x SDK declared
+   * `{count: number}` and was always `undefined` at runtime — fixed
+   * 2026-10-13 to match the wire.
    */
-  async getUnreadCount(): Promise<{ count: number }> {
-    return this.client.get<{ count: number }>('/api/v1/notification/unread/count');
+  async getUnreadCount(): Promise<UnreadCount> {
+    return this.client.get<UnreadCount>('/api/v1/notification/unread/count');
   }
 
   /**

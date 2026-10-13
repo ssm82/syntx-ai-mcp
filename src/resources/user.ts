@@ -1,5 +1,12 @@
 import { BaseClient } from '../client';
-import type { UserInternal, PublicUser, Balance, Subscription, UserSettings } from '../types';
+import type {
+  UserInternal,
+  PublicUser,
+  Balance,
+  Subscription,
+  UserSettings,
+  TokenHistoryResponse,
+} from '../types';
 
 /**
  * Forward-compat defence: any field whose name looks secret-shaped is
@@ -71,6 +78,27 @@ export class UserResource {
    */
   async getSettings(): Promise<UserSettings> {
     return this.client.get<UserSettings>('/api/v1/user/settings');
+  }
+
+  /**
+   * Get the user's token-spend history.
+   *
+   * `GET /api/v1/user/tokens/history`
+   *
+   * Cursor-paginated (live response carries `next_cursor`; pass that
+   * back as `cursor` to walk forward). When `next_cursor` is `null` the
+   * caller has reached the last page. The endpoint is auth-gated; the
+   * shape is unpinned — only `id`/`amount`/`type`/`created_at` are
+   * documented and the rest is forwarded through `unknown`.
+   */
+  async getTokensHistory(params?: {
+    cursor?: string;
+    page_size?: number;
+  }): Promise<TokenHistoryResponse> {
+    return this.client.get<TokenHistoryResponse>('/api/v1/user/tokens/history', {
+      cursor: params?.cursor,
+      page_size: params?.page_size,
+    });
   }
 }
 

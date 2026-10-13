@@ -29,6 +29,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): McpServerConfi
     streamMode: parseStreamMode(env[ENV_KEYS.streamMode], DEFAULT_CONFIG.streamMode),
     llmSseBaseUrl: env[ENV_KEYS.llmSseBaseUrl] || DEFAULT_CONFIG.llmSseBaseUrl,
     listLlmModelsCacheMs: parseNumber(env[ENV_KEYS.listLlmModelsCacheMs], DEFAULT_CONFIG.listLlmModelsCacheMs),
+    captchaToken: env[ENV_KEYS.captchaToken] || undefined,
   };
 }
 
