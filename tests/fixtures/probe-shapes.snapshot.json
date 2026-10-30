@@ -1,6 +1,6 @@
 {
-  "captured_at": "2026-10-13T07:00:00Z",
-  "schema_version": 1,
+  "captured_at": "2026-10-30T05:31:17Z",
+  "schema_version": 2,
   "endpoints": {
     "list-chats": {
       "path": "GET /api/v1/chats",
@@ -12,7 +12,7 @@
       }
     },
     "list-projects": {
-      "path": "GET /api/v1/folders/{scope}/list",
+      "path": "GET /api/v1/folders/{address}/list",
       "method": "GET",
       "response_top_level_keys": ["folders", "pagination"],
       "response_nested_keys": {
@@ -27,10 +27,17 @@
       "response_nested_keys": {},
       "note": "array at root, not an envelope object"
     },
+    "list-models": {
+      "path": "GET /api/v1/ai/models",
+      "method": "GET",
+      "response_top_level_keys": [],
+      "response_nested_keys": {},
+      "note": "array at root, not an envelope object"
+    },
     "get-llm-limits": {
       "path": "GET /api/v1/llm/limits",
       "method": "GET",
-      "response_top_level_keys": ["window_6h", "window_7d"],
+      "response_top_level_keys": ["plan", "window_6h", "window_7d"],
       "response_nested_keys": {
         "window_6h.percent_left": "number",
         "window_6h.started_at": "string|null",
@@ -38,14 +45,61 @@
         "window_7d.percent_left": "number",
         "window_7d.started_at": "string|null",
         "window_7d.expires_at": "string|null"
+      },
+      "note": "`plan` was added upstream on 2026-10-30; it was absent from the v1 baseline"
+    },
+    "get-llm-reset-price": {
+      "path": "GET /api/v1/llm/limits/reset/price",
+      "method": "GET",
+      "response_top_level_keys": ["plan", "window_6h", "window_7d"],
+      "response_nested_keys": {
+        "window_6h.window": "string",
+        "window_6h.available": "boolean",
+        "window_6h.price_tokens": "number|null",
+        "window_6h.used_percent": "number",
+        "window_6h.reason": "string|null",
+        "window_7d.window": "string",
+        "window_7d.available": "boolean",
+        "window_7d.price_tokens": "number|null",
+        "window_7d.used_percent": "number",
+        "window_7d.reason": "string|null"
       }
     },
     "get-balance": {
       "path": "GET /api/v1/user/balance",
       "method": "GET",
-      "response_top_level_keys": ["balance", "currency"],
+      "response_top_level_keys": ["balance", "user_id"],
+      "response_nested_keys": {},
+      "note": "the v1 baseline claimed `currency`; the live payload carries `user_id`"
+    },
+    "list-agents": {
+      "path": "GET /api/v1/agents/list",
+      "method": "GET",
+      "response_top_level_keys": ["agents", "agent_limit", "agent_count", "can_create_more"],
+      "response_nested_keys": {
+        "agents.name": "string",
+        "agents.agent_id": "string",
+        "agents.editable": "boolean",
+        "agents.status": "string"
+      }
+    },
+    "list-trend-categories": {
+      "path": "GET /api/v1/trends/categories",
+      "method": "GET",
+      "response_top_level_keys": ["categories"],
+      "response_nested_keys": {
+        "categories.id": "string",
+        "categories.slug": "string",
+        "categories.title": "string"
+      },
+      "note": "the element label is `title`; the v1 baseline declared `name`"
+    },
+    "list-events": {
+      "path": "GET /api/v1/events",
+      "method": "GET",
+      "response_top_level_keys": ["items", "total", "page", "page_size"],
       "response_nested_keys": {}
     }
   },
-  "notes": "v1 shape baseline. Captured 2026-10-13. The drift class this exists to surface: an endpoint returns 200 with a wrong top-level shape (e.g., `folders/{scope}/list` returning a `Folder[]` directly instead of `{folders, pagination}`). When `PROBE_SHAPES_LIVE=1` is set, tests/probe-shapes.test.ts hits the live API and asserts each top-level key matches this snapshot. The default `npm test` path does only structural validation of this file, so CI does not require a bearer token."
+  "notes": "v2 shape baseline. Captured 2026-10-30 against prod-SPA bundle 1793202992. The drift class this exists to surface: an endpoint returns 200 with a wrong top-level shape (e.g., `folders/{scope}/list` returning a `Folder[]` directly instead of `{folders, pagination}`). When `PROBE_SHAPES_LIVE=1` is set, tests/probe-shapes.test.ts hits the live API and asserts each top-level key matches this snapshot. The default `npm test` path does only structural validation of this file, so CI does not require a bearer token."
 }

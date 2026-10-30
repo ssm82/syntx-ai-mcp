@@ -30,7 +30,7 @@ function load(): ShapeSnapshot {
 
 test('probe-shapes snapshot is structurally valid', () => {
   const s = load();
-  assert.equal(s.schema_version, 1);
+  assert.equal(s.schema_version, 2);
   assert.ok(typeof s.captured_at === 'string');
   assert.ok(!Number.isNaN(Date.parse(s.captured_at)), `captured_at not parseable: ${s.captured_at}`);
   assert.ok(Date.parse(s.captured_at) <= Date.now());

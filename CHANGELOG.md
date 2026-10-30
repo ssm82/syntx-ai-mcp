@@ -9,6 +9,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **New SDK resource `syntx.agents` — the `agents/*` surface.** The namespace
+  was already catalogued on 2026-10-13 but explicitly deferred ("large
+  subsystem, separate decision"); this cycle implements it. Source: the
+  prod-SPA bundle `1793202992` (Pinia store `ai-agent`, chunk
+  `FavoriteMessagesButton.js`), re-verified against the live API. Eight REST
+  methods:
+  - `agents.list()` → `GET /api/v1/agents/list` —
+    `{agents: [{name, description, agent_id, editable, status, processing_progress?}], agent_limit, agent_count, can_create_more}`.
+    The list mixes the caller's own agents with platform agents shared
+    across accounts (`editable: false`).
+  - `agents.get(agentId)` → `GET /api/v1/agents/info/{agent_id}` — the full
+    record (`system_prompt`, `style_prompt`, `model_name`, `is_ready`,
+    `use_chat_history`, `enabled_tools`, `default_models`, `files[]`).
+  - `agents.create(params)` → `POST /api/v1/agents/create`
+    (`multipart/form-data`). Nested objects (`enabled_tools`,
+    `default_models`) are JSON-stringified inside the multipart body,
+    matching the prod-SPA's `FormData` assembly.
+  - `agents.update(id, params)` → `PUT /api/v1/agents/update/{id}` — the
+    path segment is the agent's **numeric** `id`, not its UUID; `id` is
+    included in the body the way the SPA sends the whole record back.
+  - `agents.delete(agentId)` → `DELETE /api/v1/agents/{agent_id}`.
+  - `agents.listFiles(agentId)` → `GET /api/v1/agents/files/list/{agent_id}`.
+  - `agents.addFiles(agentId, files)` → `POST /api/v1/agents/files/add/{agent_id}`
+    (`multipart/form-data`, repeated `files` field).
+  - `agents.deleteFiles(agentId, fileIds)` →
+    `DELETE /api/v1/agents/files/delete/{agent_id}` with `{file_ids: [...]}`.
+  - The agents **chat** runs over a WebSocket (`agents/chat/{agent_id}`).
+    This SDK does not implement it — WebSocket support was removed in
+    `4c01027` and the SSE transport is the supported path.
+- **New MCP tools `list-agents`, `get-agent`, `create-agent`,
+  `update-agent`, `delete-agent`, `list-agent-files`, `add-agent-files`,
+  `delete-agent-files`** — the `agents/*` surface. `add-agent-files` reuses
+  the `upload-files` path-input policy, so `path` is rejected over the HTTP
+  transport. Tool count: 49 → 58.
+- **Tool arguments are now validated against the tool's JSON Schema at the
+  server's single `call-tool` entry point (ajv).** Every tool advertised a
+  schema with `enum`, `required` and `additionalProperties: false`, but the
+  server passed `arguments` straight to the handler — those constraints
+  were advisory only. A client could send `source: "bogus"` to `list-models`
+  and the handler silently fell back to the default catalog, or pass a
+  misspelled argument that was ignored without a word. Validation now
+  rejects the call before the handler runs and names every violation:
+  `list-models: invalid arguments:` / `  - "source": must be one of: "ai",
+  "llm", "both"`. Types are never coerced and schema `default`s are not
+  applied — a wrong type is an error the caller can correct, not a value
+  the server guesses at. New public export `validateToolArgs(name, schema,
+  args)` for SDK consumers that invoke an exported tool handler directly.
+  `ajv` is now a direct dependency of the package.
+- **New SDK method `syntx.llm.getResetPrice()`** →
+  `GET /api/v1/llm/limits/reset/price`. Returns the quote for resetting the
+  LLM usage windows: each window reports `available`, `price_tokens`
+  (`null` when the window cannot be reset), `used_percent` and `reason`.
+  Read-only — the matching `POST /api/v1/llm/limits/reset/purchase` spends
+  tokens and is **not** exposed. New MCP tool `get-llm-reset-price`.
+
 - **Captcha support for the gated generative routes.** syntx.ai now answers
   challenge-free requests to `llm/generate`, `design/generate`,
   `video/generate`, `audio/generate` and `auth/email/send-otp` with **403**.
@@ -134,8 +189,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `listLlmModelsCacheMs` (default `60000`).
   Set `SYNTX_LEGACY_TEXT_TRANSPORT=true` to restore the v0.3.0 behaviour.
 
+- **Shape drift — `GET /api/v1/llm/limits` now returns a top-level `plan`.**
+  The live payload is `{plan, window_6h, window_7d}`; the SDK declared only
+  the two windows, so the plan name was dropped. `LlmLimits` gained
+  `plan: string | null` and `syntx.llm.getLimits()` forwards it.
+- **Shape drift — `GET /api/v1/trends/categories` elements are
+  `{id, slug, title}`.** The label key `name` is **gone** upstream — the SDK
+  declared `name: string` as required, so the type was lying. `TrendCategory`
+  now declares `id` and `title` as required and keeps `name` as an optional
+  legacy alias (absent on the wire).
+- **Shape drift — `GET /api/v1/promo_banners` has two distinct element
+  shapes.** The `header` group is `{uuid, body, buttons[], open_in_new_tab,
+  order, …}`; the `landing` group has no `body` and no `buttons[]` — its
+  text is split across `primary_title` / `secondary_title` / `subtitle` /
+  `feature` / `description` and the call-to-action is a single `button`
+  object. `PromoBannersResponse` now types the two groups separately
+  (`PromoHeaderBanner[]` / `PromoLandingBanner[]`). `PromoBanner` is kept as
+  a deprecated alias and will be removed in the next minor version.
+- **ENUM/RANGE drift — the provider → scope map behind `list-models` is now
+  derived from the live catalog.** It used to be a frozen table
+  (`KNOWN_PROVIDERS`) that had drifted in both directions: upstream added
+  providers (`kimi`, `zai`, `grok_image`, `luma_image`, `wan_image`,
+  `veo3`, `wan_video`, `video2audio`, `flux3_video`, …) and retired others
+  (`stable-diffusion`, `recraft`, `kling-kolors`). Because an unknown
+  provider resolved to `null`, a `scope` filter **silently dropped** every
+  model the table did not know about — `list-models` with `scope=text`
+  returned 42 models while the live catalog held 46 (the missing four were
+  `kimi` ×2 and `zai` ×2). The map is now built from `GET /api/v1/ai` on
+  demand, and the upstream `tool_*` scopes are folded into the coarse
+  buckets (`tool_image_inpaint` → `image`, `tool_video_upscaler` →
+  `upscale`, …). The `scope` enum itself is unchanged.
+- **Two follow-up defects in `list-models`, both found while verifying the
+  fix above and now closed.**
+  - `search` matched only `value` / `label`, but the text scope is served
+    from `GET /api/v1/llm/models`, whose rows carry `id` instead of
+    `value`. A search by model id on `scope=text` therefore returned
+    nothing (`search="claude-opus-5"` → 0 hits with the scope, 1 hit
+    without). The filter now falls back to `id`.
+  - The scope map joins two catalogs that disagree on spelling:
+    `GET /api/v1/ai` reports `midjourney-editor` (hyphen) while
+    `GET /api/v1/ai/models` reports `midjourney_editor` (underscore), so
+    that provider was dropped from every scope bucket. Provider keys are
+    now canonicalised (`_` → `-`) on both sides of the join.
+- **`list-models` gained a `source` selector, and the two upstream model
+  catalogs are now merged instead of being picked between.**
+  `GET /api/v1/ai/models` (general, every media scope) and
+  `GET /api/v1/llm/models` (text) are **not** in sync:
+  - `gpt-6.1-sol` and `gpt-6.1-terra` exist **only** in the LLM catalog —
+    `list-models` without `scope` never showed them.
+  - `deepseek-r1`, `gemini-3.7-flash` and `grok-4.6` are enabled for text
+    upstream but flagged inactive in the general catalog.
+  - `source` accepts `"ai"` (the platform catalog), `"llm"` (the text
+    catalog alone) or `"both"` (an explicit spelling of `"ai"`). The
+    default is `"ai"`, which is the **merged** view — the general catalog
+    union the text catalog (197 active models vs. 188 general / 46 text).
+    `gpt-6.1-sol` and `gpt-6.1-terra` are therefore present in the general
+    catalog view, and the text models that upstream flags inactive in the
+    general catalog (`deepseek-r1`, `gemini-3.7-flash`, `grok-4.6`) are
+    listed as available. Use `source: "llm"` for the text-only view the
+    SPA's model picker uses.
+  - New SDK exports `normalizeLlmModel(row)` and
+    `mergeModelCatalogs(aiModels, llmModels)`; the merge keys on the model
+    identifier, lets the LLM catalog decide availability for text models,
+    and keeps the general catalog's upload metadata.
+
+- **Breaking (type-only) — `LlmModel` now matches the wire.** The live
+  `GET /api/v1/llm/models` row is keyed by `id` and uses `enabled`; it has
+  no `value`, `active` or `scope` field, so the previous declaration made
+  every consumer read `undefined`. `LlmModel.id` / `LlmModel.enabled` (plus
+  `context_window`, `default_max_tokens`, `capabilities`,
+  `supported_tools`, `min_subscription`, `performance_level`, `is_free`) are
+  now declared. `AIModel` gained an optional `llm` field carrying the
+  text-catalog row verbatim, so `list-models` returns one uniform shape:
+  `value` is always the model identifier.
+
 ### Fixed
 
+- **The enum-drift probe could not run.** `scripts/probe-enums.ts` expected
+  `GET /api/v1/ai` and `GET /api/v1/ai/models` to return arrays of **strings**;
+  the live API returns **objects** (`{value, label, scope, active, description}`
+  / `{value, label, ai_name, settings, …}`) and
+  `GET /api/v1/llm/models` returns a `{models, count}` envelope. The
+  shape-guard therefore aborted with
+  `GET /api/v1/ai: non-string element {"value":"topaz_astra",…}` and exited 1
+  on every run, so the drift baseline could not be regenerated. The probe now
+  parses the real shapes, derives `ai_services.by_scope` from the live `scope`
+  field instead of a hand-curated partition (schema_version 2), and counts
+  `ai_models_with_get_cost_params` over models whose `settings.get_cost_params`
+  is a non-empty array.
+- **The enum/shape baselines were stale.** `tests/fixtures/probe-enums.snapshot.json`
+  was regenerated against the live API (services 44 → 45, ai models 215 → 226,
+  llm models 43 → 46, models with cost params 103 → 111; the `upscale` scope was
+  replaced upstream by `tool_image_upscaler` / `tool_video_upscaler`).
+  `tests/fixtures/probe-shapes.snapshot.json` was corrected: `get-balance`
+  returns `balance` / `user_id` (the baseline claimed `currency`), and
+  `get-llm-limits` carries the new `plan` key. Entries were added for
+  `list-agents`, `get-llm-reset-price`, `list-models` and
+  `list-trend-categories`; `schema_version` is now 2.
 - **Shape drift — `GET /api/v1/notification/unread/count` now returns
   `{ total: number }` (was declared as `{ count: number }` and was
   `undefined` at runtime).** The `UnreadCount` type and

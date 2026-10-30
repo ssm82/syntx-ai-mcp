@@ -72,6 +72,14 @@ export interface AIModel {
   type: string | null;
   settings: AIModelSettings;
   features: unknown | null;
+  /**
+   * Present only for rows sourced from the LLM catalog
+   * (`GET /api/v1/llm/models`) — see {@link LlmModel}. Carries the
+   * text-catalog-only fields (context window, capabilities, supported
+   * tools, subscription gate). Absent for AI-catalog rows.
+   */
+  llm?: LlmModel;
+  [key: string]: unknown;
 }
 
 /**
@@ -460,6 +468,12 @@ export interface Locale {
 /**
  * Promo banner
  *
+ * @deprecated Superseded by {@link PromoHeaderBanner} and
+ * {@link PromoLandingBanner} — the two groups returned by
+ * `GET /api/v1/promo_banners` have **different** element shapes and a
+ * single type can no longer describe both honestly. Kept for backward
+ * compatibility; it will be removed in the next minor version.
+ *
  * NOTE — shape drift as of 2026-10-13. Live fields are
  * `{uuid, body, buttons[], open_in_new_tab, order, start_date, end_date, updated_at}`.
  * The legacy `id`/`title`/`description`/`image_url`/`link`/`active`
@@ -486,13 +500,58 @@ export interface PromoBanner {
 }
 
 /**
+ * A banner in the `header` group of `GET /api/v1/promo_banners`.
+ *
+ * The header group is the "HTML body + buttons" shape:
+ * `{uuid, body, buttons[], open_in_new_tab, order, start_date, end_date, updated_at}`.
+ */
+export interface PromoHeaderBanner extends Omit<PromoBanner, 'body' | 'buttons'> {
+  body: string;
+  buttons?: Array<{ link?: string; text?: string; [key: string]: unknown }>;
+}
+
+/**
+ * A banner in the `landing` group of `GET /api/v1/promo_banners`.
+ *
+ * SHAPE CHANGE (2026-10-30): the landing group is **not** a
+ * `PromoBanner`. It has no `body` and no `buttons[]` — the text is split
+ * across `primary_title` / `secondary_title` / `subtitle` / `feature` /
+ * `description`, and the call-to-action is a single `button` object.
+ *
+ * `{uuid, primary_title, secondary_title, subtitle, feature, description,
+ *   type, model_name, button{active,link,text,new_tab}, date, media_url[]}`
+ */
+export interface PromoLandingBanner {
+  uuid: string;
+  primary_title?: string | null;
+  secondary_title?: string | null;
+  subtitle?: string | null;
+  feature?: string | null;
+  description?: string | null;
+  /** Banner kind, e.g. `"info"`. */
+  type?: string | null;
+  model_name?: string | null;
+  button?: {
+    active?: boolean;
+    link?: string;
+    text?: string;
+    new_tab?: boolean;
+    [key: string]: unknown;
+  };
+  date?: string | null;
+  media_url?: string[];
+  [key: string]: unknown;
+}
+
+/**
  * `GET /api/v1/promo_banners` envelope. Live shape is
- * `{header: PromoBanner[], landing: PromoBanner[]}`; the v0.2.x SDK
- * declared `PromoBanner[]` and was effectively dropping both groups.
+ * `{header: PromoHeaderBanner[], landing: PromoLandingBanner[]}`;
+ * the v0.2.x SDK declared `PromoBanner[]` and was effectively dropping
+ * both groups.
  */
 export interface PromoBannersResponse {
-  header: PromoBanner[];
-  landing: PromoBanner[];
+  header: PromoHeaderBanner[];
+  landing: PromoLandingBanner[];
 }
 
 /**
@@ -772,6 +831,14 @@ export interface RawLlmLimitWindow {
  * Either window may be `null` when the user/model has no such limit.
  */
 export interface LlmLimits {
+  /**
+   * Name of the subscription plan the limits belong to (e.g. `"pro"`).
+   *
+   * Added upstream on 2026-10-30 — the live `GET /api/v1/llm/limits`
+   * response is `{plan, window_6h, window_7d}`. `null` when the server
+   * omits it.
+   */
+  plan: string | null;
   window_6h: LlmLimitWindow | null;
   window_7d: LlmLimitWindow | null;
 }
@@ -794,17 +861,40 @@ export interface LlmStreamJob {
 }
 
 /**
- * Text-scope LLM model from `GET /api/v1/llm/models`. Only the text-scope
- * subset is typed here; other scopes return raw passthrough via
- * `[key: string]: unknown`.
+ * Text-scope LLM model from `GET /api/v1/llm/models`.
+ *
+ * SHAPE CHANGE (2026-10-30): the live row is keyed by `id` and uses
+ * `enabled` — it has **no** `value`, `active` or `scope` field. The
+ * previous declaration of those three fields did not match the wire and
+ * made every consumer read `undefined`; use
+ * {@link normalizeLlmModel} to project a row onto the shared
+ * {@link AIModel} shape.
  */
 export interface LlmModel {
-  value: string;
+  /** Model identifier, e.g. `claude-opus-5`. */
+  id: string;
   label: string;
   ai_name: string;
-  scope: 'text';
-  active: boolean;
   description?: string | null;
+  /** Whether the model is offered on the current plan. */
+  enabled: boolean;
+  is_free?: boolean;
+  icon?: string | null;
+  /** Relative speed/cost tier (1..3). */
+  performance_level?: number | null;
+  default?: boolean;
+  /** Subscription that grants access for free from this tier. */
+  free_from_sub?: string | null;
+  available_subscriptions?: string[];
+  /** Minimum subscription required to use the model; `null` = none. */
+  min_subscription?: string | null;
+  context_window?: number | null;
+  default_max_tokens?: number | null;
+  max_images_count?: number | null;
+  /** Feature flags, e.g. `{thinking, planning, deep_research, …}`. */
+  capabilities?: Record<string, boolean>;
+  /** Names of the server-side tools the model can call. */
+  supported_tools?: string[];
   [key: string]: unknown;
 }
 
@@ -953,11 +1043,20 @@ export interface TokenPricingResponse {
 
 /**
  * One row of `GET /api/v1/trends/categories` — discovery surface for the
- * home feed. Categories have a display name and a slug used in routes.
+ * home feed.
+ *
+ * SHAPE CHANGE (2026-10-30): the live element is
+ * `{id, slug, title}` — `name` is **gone**, replaced by `title`, and a
+ * stable `id` was added. `name` survives as an optional legacy alias so
+ * existing callers keep compiling; it is `undefined` against the live
+ * API.
  */
 export interface TrendCategory {
+  id: string;
   slug: string;
-  name: string;
+  title: string;
+  /** Legacy alias — absent from the live response since 2026-10-30. */
+  name?: string;
   [key: string]: unknown;
 }
 
@@ -1038,5 +1137,181 @@ export interface PromptEnhancementTask {
   status: 'pending' | 'completed' | 'failed';
   enhanced_prompt?: string;
   error?: string;
+  [key: string]: unknown;
+}
+
+// ── Agents (prod-SPA bundle `1793202992`, Pinia store `ai-agent`) ─────────────
+
+/**
+ * One agent as listed by `GET /api/v1/agents/list`.
+ *
+ * The list is a *mixed* view: it carries both the caller's own agents
+ * (`editable: true`) and platform agents shared with every account
+ * (`editable: false`). `agent_id` — not `id` — is the identifier every
+ * other agents endpoint takes.
+ */
+export interface AgentSummary {
+  name: string;
+  description: string | null;
+  /** UUID used by every `agents/*` path segment. */
+  agent_id: string;
+  /** `false` for platform-provided agents the caller cannot modify. */
+  editable: boolean;
+  /** `ready` | `completed` | anything else means "still processing". */
+  status: string;
+  /** Optional progress marker, e.g. `"21/21"`. */
+  processing_progress?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * `GET /api/v1/agents/list` — the agent index plus the caller's quota.
+ *
+ * `agent_count` counts the agents the caller owns (shared agents excluded);
+ * `can_create_more` is the server's own answer to "may I create another?".
+ */
+export interface AgentsListResponse {
+  agents: AgentSummary[];
+  agent_limit: number;
+  agent_count: number;
+  can_create_more: boolean;
+  [key: string]: unknown;
+}
+
+/**
+ * Tool toggles an agent may enable. All flags are booleans; the server
+ * omits unknown tools rather than sending `false`, so treat a missing
+ * key as "not enabled".
+ */
+export interface AgentEnabledTools {
+  sora_image?: boolean;
+  suno_audio?: boolean;
+  veo3_video?: boolean;
+  web_search?: boolean;
+  file_search?: boolean;
+  video2audio?: boolean;
+  seedance_video?: boolean;
+  sora_image_edit?: boolean;
+  code_interpreter?: boolean;
+  [key: string]: boolean | undefined;
+}
+
+/**
+ * Default model routing per media scope for an agent.
+ */
+export interface AgentDefaultModels {
+  audio?: string;
+  image?: string;
+  video?: string;
+  [key: string]: string | undefined;
+}
+
+/**
+ * `GET /api/v1/agents/info/{agent_id}` — the full agent record.
+ *
+ * `system_prompt` / `style_prompt` are the caller-authored instruction
+ * texts (both nullable). `owner_id` is the numeric id of the account that
+ * owns the agent — for shared platform agents that is the platform's id,
+ * not the caller's.
+ */
+export interface AgentDetail {
+  id: number;
+  uuid: string;
+  name: string;
+  description: string | null;
+  system_prompt: string | null;
+  style_prompt: string | null;
+  model_name: string | null;
+  is_ready: boolean;
+  created_at: string;
+  updated_at: string;
+  owner_id: number;
+  files: AgentFile[];
+  use_chat_history: boolean;
+  enabled_tools: AgentEnabledTools;
+  default_models: AgentDefaultModels;
+  [key: string]: unknown;
+}
+
+/**
+ * One file attached to an agent (knowledge/context files).
+ *
+ * The live `agents/files/list/{id}` payload is an array of these objects.
+ * The server may add fields; unknown keys are forwarded.
+ */
+export interface AgentFile {
+  id: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Body of `POST /api/v1/agents/create`.
+ *
+ * The endpoint takes `multipart/form-data`. `name`, `system_prompt` and
+ * `model_name` are required by the SPA's own form validation.
+ * `enabled_tools` / `default_models` are objects and are serialized as
+ * JSON strings inside the multipart body — matching the prod-SPA's
+ * `FormData` assembly in the `ai-agent` store.
+ */
+export interface CreateAgentParams {
+  name: string;
+  system_prompt: string;
+  model_name: string;
+  description?: string;
+  style_prompt?: string;
+  use_chat_history?: boolean;
+  enabled_tools?: AgentEnabledTools;
+  default_models?: AgentDefaultModels;
+  [key: string]: unknown;
+}
+
+/**
+ * Body of `PUT /api/v1/agents/update/{id}`.
+ *
+ * The upstream path segment is the agent's **numeric** `id` (as returned
+ * by `GET /api/v1/agents/info/{agent_id}`), not its `agent_id` UUID.
+ * The prod-SPA sends the whole agent record back, so the body is
+ * forwarded verbatim.
+ */
+export interface UpdateAgentParams {
+  id?: number | string;
+  name?: string;
+  description?: string | null;
+  system_prompt?: string | null;
+  style_prompt?: string | null;
+  model_name?: string | null;
+  use_chat_history?: boolean;
+  enabled_tools?: AgentEnabledTools;
+  default_models?: AgentDefaultModels;
+  [key: string]: unknown;
+}
+
+/**
+ * One window of the LLM limit-reset quote.
+ *
+ * `available` is the server's answer to "can this window be reset right
+ * now"; `reason` explains a negative answer (e.g. `nothing_to_reset`).
+ * `price_tokens` is the token cost of the reset — `null` when the window
+ * is not resettable.
+ */
+export interface LlmResetPriceWindow {
+  window: string;
+  available: boolean;
+  price_tokens: number | null;
+  used_percent: number;
+  reason: string | null;
+  [key: string]: unknown;
+}
+
+/**
+ * `GET /api/v1/llm/limits/reset/price` — quote for resetting the LLM
+ * usage windows. Read-only; purchasing the reset is a separate
+ * `POST /api/v1/llm/limits/reset/purchase` call which this SDK does not
+ * expose.
+ */
+export interface LlmResetPrice {
+  plan: string | null;
+  window_6h: LlmResetPriceWindow | null;
+  window_7d: LlmResetPriceWindow | null;
   [key: string]: unknown;
 }

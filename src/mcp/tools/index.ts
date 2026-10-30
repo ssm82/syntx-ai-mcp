@@ -9,6 +9,7 @@ import { audioTools } from './audio';
 import { foldersTools } from './folders';
 import { videoTools } from './video';
 import { llmTools } from './llm';
+import { agentsTools } from './agents';
 import { plansTools } from './plans';
 import { discoveryTools } from './discovery';
 import { promptEnhancerTools } from './prompt-enhancer';
@@ -28,6 +29,7 @@ export const allTools: SyntxTool[] = [
   ...videoTools,
   ...foldersTools,
   ...llmTools,
+  ...agentsTools,
   ...plansTools,
   ...discoveryTools,
   ...promptEnhancerTools,

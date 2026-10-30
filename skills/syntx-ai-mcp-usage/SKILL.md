@@ -26,7 +26,7 @@ Trigger on any of these conditions:
 
 ## Tool inventory — quick reference
 
-The exposed surface is **49 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 release notes](../../CHANGELOG.md) for the full removal list). They cluster into twelve surfaces.
+The exposed surface is **58 MCP tools** (was 49 on 2026-10-13, 51 in 0.2.x — see the [v0.3.0 release notes](../../CHANGELOG.md) for the full removal list). They cluster into twelve surfaces.
 
 ### Auth (4)
 | Tool | Purpose | Blocking? | Notes |
@@ -43,11 +43,11 @@ The exposed surface is **49 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 | `get-balance` | Token balance for the authenticated user | yes | |
 | `get-tokens-history` | Token-spend history (cursor-paginated) | yes | Pass the previous `next_cursor` (if non-null) to walk forward. |
 
-### Model catalog (3)
+### Model catalog (2)
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
 | `list-ai-services` | List syntx.ai providers | yes | Use to discover `ai_name` values. |
-| `list-models` | List models with constraints | yes | Source of truth for `model_type` identifiers. |
+| `list-models` | List models with constraints | yes | Source of truth for `model_type` identifiers. `source`: `ai` (default) = platform catalog — the general catalog **merged with** the text catalog, so `gpt-6.1-sol` / `gpt-6.1-terra` (text-catalog-only upstream) are present; `llm` = text catalog alone (the SPA picker's view); `both` = explicit spelling of `ai`. The two upstream catalogs are **not** in sync — `deepseek-r1` / `gemini-3.7-flash` / `grok-4.6` are enabled for text but flagged inactive in `ai`, and the merged view lists them as available. `value` is always the model id. |
 
 ### Chats (16)
 | Tool | Purpose | Blocking? | Notes |
@@ -85,10 +85,26 @@ The exposed surface is **49 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 | `generate-audio` | TTS / voice-change / music generation | yes | Requires target `chat_uuid`. |
 | `generate-video` | Video generation | yes | Requires target `chat_id` (note: `chat_id`, not `chat_uuid`). |
 
-### LLM (1)
+### LLM (2)
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
-| `get-llm-limits` | LLM usage limits (6h / 7d windows) | yes | Each window reports `percent_left`, `started_at`, `expires_at`; expired windows normalise to 100%. |
+| `get-llm-limits` | LLM usage limits (6h / 7d windows) | yes | Each window reports `percent_left`, `started_at`, `expires_at`; expired windows normalise to 100%. Also carries the subscription `plan`. |
+| `get-llm-reset-price` | Quote for resetting the LLM usage windows | yes | Each window reports `available`, `price_tokens` (null when not resettable), `used_percent`, `reason`. Read-only — it does not buy the reset. |
+
+### Agents (8) — `agents/*`
+| Tool | Purpose | Blocking? | Notes |
+|---|---|---|---|
+| `list-agents` | List the AI agents visible to the account | yes | Returns `{agents, agent_limit, agent_count, can_create_more}`. Mixes your own agents with platform ones (`editable: false`). |
+| `get-agent` | Full agent record | yes | `system_prompt`, `style_prompt`, `model_name`, `is_ready`, `use_chat_history`, `enabled_tools`, `default_models`, `files[]`. |
+| `create-agent` | Create an agent (multipart) | yes | `name`, `system_prompt` and `model_name` are required. `enabled_tools` / `default_models` are objects, sent as JSON strings inside the multipart body. |
+| `update-agent` | Update an agent | yes | Path segment is the agent's **numeric** `id` (from `get-agent`), not its UUID. Only the provided fields are sent. |
+| `delete-agent` | Permanently delete an agent | yes | Destructive — confirm before invoking. Takes the agent UUID. |
+| `list-agent-files` | Files attached to an agent | yes | |
+| `add-agent-files` | Attach files to an agent (multipart) | yes | ≤10 files, ≤100 MB each. `path` is LFI on non-stdio transport — see security caveats. |
+| `delete-agent-files` | Remove files from an agent | yes | Destructive — confirm before invoking. Body is `{file_ids: [...]}`. |
+
+> `agent_id` is the UUID from `list-agents`; `update-agent` takes the numeric `id`.
+> The agent chat runs over WebSocket (`agents/chat/{agent_id}`) — not exposed here.
 
 ### Projects (7) — `syntx://folders`
 | Tool | Purpose | Blocking? | Notes |
@@ -110,7 +126,7 @@ The exposed surface is **49 MCP tools** (was 51 in 0.2.x — see the [v0.3.0 rel
 ### Discovery (3)
 | Tool | Purpose | Blocking? | Notes |
 |---|---|---|---|
-| `list-trend-categories` | Home-feed categories | yes | `{categories: [{slug, name}]}`. |
+| `list-trend-categories` | Home-feed categories | yes | `{categories: [{id, slug, title}]}` — the label is `title`; `name` is no longer sent. |
 | `list-trend-tags` | Home-feed tags | yes | Often empty in the live response. |
 | `list-events` | Event feed (promotions, milestones) | yes | Page-number pagination; `total` reported. |
 
@@ -297,6 +313,7 @@ Quick index — full details in [`references/failure-modes.md`](references/failu
 - **`ask` returns `MCP error -32001: Request timed out`** → MCP-layer timeout fired before the tool-layer `timeout`; the chat is already created server-side. Do **not** retry `ask` (same failure will recur). For long prompts to deep models, go straight to Pattern B (`create-chat` + `send-message` + `wait-for-response`) with explicit `timeout` on `wait-for-response` — for one-off `ask` failures on short prompts, Pattern C recovery is fine. See [MCP-layer timeout vs tool-layer timeout](#mcp-layer-timeout-vs-tool-layer-timeout).
 - **`completed: false` with empty text in `get-messages`** → assistant still generating; `wait-for-response` with longer timeout, or sleep + re-poll.
 - **Token missing / 401** → `set-token` then `whoami` to confirm (`authenticated: true`).
+- **Tool call rejected with `invalid arguments`** → the server validates the arguments against the tool's JSON Schema before the handler runs (`enum`, `required`, `additionalProperties: false` are enforced, types are never coerced). The message names the offending argument — e.g. `"source": must be one of: "ai", "llm", "both"` — so fix the argument instead of retrying the same call.
 - **`upload-files` permission/path error over HTTP** → transport guard rejected `path`; switch to `content_base64`.
 - **`generate-image` with no `chat_uuid`** → every design service call needs a target chat; create one first via `create-chat(scope="image")`.
 - **`get-profile` errors with `Unauthorized`** → no token is installed. Use `set-token` (stdio only — over HTTP, install via `SYNTX_TOKEN` at server start).

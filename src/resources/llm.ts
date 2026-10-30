@@ -9,6 +9,8 @@ import type {
   LlmGenerateResponse,
   LlmModel,
   LlmListModelsParams,
+  LlmResetPrice,
+  LlmResetPriceWindow,
   LlmStreamJob,
   CompletedMessage,
   Message,
@@ -36,6 +38,7 @@ interface WaitForResponseOptions {
  *  - `GET  /api/v1/llm/models`
  *  - `GET  /api/v1/llm/chats/{chatId}/stream`
  *  - `GET  /api/v1/llm/limits`
+ *  - `GET  /api/v1/llm/limits/reset/price`
  *
  * The companion SSE stream lives on `sse.syntx.ai`; see
  * {@link LlmResource.waitForResponse} for the full flow.
@@ -49,15 +52,46 @@ export class LlmResource {
    * Windows with `expires_at === null` or `expires_at` already in the past
    * are normalised to `{ percent_left: 100, started_at: null, expires_at: null }`
    * so callers never have to re-implement that rule.
+   *
+   * The live response also carries `plan` — the subscription plan the
+   * limits belong to. It was added upstream on 2026-10-30; it is `null`
+   * when the server omits it.
    */
   async getLimits(): Promise<LlmLimits> {
     const res = await this.client.get<{
+      plan?: string | null;
       window_6h: RawLlmLimitWindow | null;
       window_7d: RawLlmLimitWindow | null;
     }>('/api/v1/llm/limits');
     return {
+      plan: typeof res.plan === 'string' ? res.plan : null,
       window_6h: normalizeWindow(res.window_6h),
       window_7d: normalizeWindow(res.window_7d),
+    };
+  }
+
+  /**
+   * Quote for resetting the LLM usage windows.
+   *
+   * `GET /api/v1/llm/limits/reset/price`
+   *
+   * Read-only. Each window reports whether it can be reset right now
+   * (`available`), what that costs in tokens (`price_tokens`), how much of
+   * the window is used (`used_percent`) and — when the window cannot be
+   * reset — why (`reason`). Purchasing the reset is a separate
+   * `POST /api/v1/llm/limits/reset/purchase` call, which this SDK does
+   * not expose (it spends tokens).
+   */
+  async getResetPrice(): Promise<LlmResetPrice> {
+    const res = await this.client.get<{
+      plan?: string | null;
+      window_6h?: LlmResetPriceWindow | null;
+      window_7d?: LlmResetPriceWindow | null;
+    }>('/api/v1/llm/limits/reset/price');
+    return {
+      plan: typeof res.plan === 'string' ? res.plan : null,
+      window_6h: res.window_6h ?? null,
+      window_7d: res.window_7d ?? null,
     };
   }
 

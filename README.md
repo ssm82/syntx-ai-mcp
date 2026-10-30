@@ -289,7 +289,9 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 
 ## Инструменты (Tools)
 
-Все 49 инструментов принимают JSON-аргументы и возвращают структурированный результат. Текстовые ответы — это JSON-снимки данных API; ошибки возвращаются с `isError: true` (без обрыва канала).
+Все 58 инструментов принимают JSON-аргументы и возвращают структурированный результат. Текстовые ответы — это JSON-снимки данных API; ошибки возвращаются с `isError: true` (без обрыва канала).
+
+Аргументы проверяются по JSON-схеме инструмента **до** вызова хендлера (ajv, единая точка входа `call-tool`): `enum`, `required` и `additionalProperties: false` реально применяются, а нарушение возвращается как `isError: true` с указанием пути аргумента и требуемого значения. Типы не приводятся принудительно, значения по умолчанию из схемы не подставляются.
 
 ### Идентификация и токен
 
@@ -310,14 +312,17 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 | Инструмент | Описание | Параметры |
 |---|---|---|
 | `list-ai-services` | Доступные AI-сервисы (ChatGPT, Midjourney, Sora…) | — |
-| `list-models` | Модели с ограничениями и поддерживаемыми форматами | `scope?`, `ai_name?`, `active_only?`, `search?` |
+| `list-models` | Модели с ограничениями и поддерживаемыми форматами | `scope?`, `ai_name?`, `active_only?`, `search?`, `source?` |
 
 Параметры `list-models` (все опциональны, комбинируются через AND):
 
-- `scope` — категория возможностей: `text` \| `image` \| `video` \| `audio` \| `upscale`. Категория выводится из `ai_name` провайдера; если провайдер неизвестен, модель попадает только в вызовы без фильтра `scope`.
+- `scope` — категория возможностей: `text` \| `image` \| `video` \| `audio` \| `upscale`. Категория выводится из живого каталога провайдеров (`GET /api/v1/ai`); если провайдер неизвестен, модель попадает только в вызовы без фильтра `scope`.
 - `ai_name` — точное имя провайдера syntx.ai, например `"chatgpt"`, `"claude"`, `"midjourney"`.
 - `active_only` — `true` (по умолчанию) скрывает неактивные модели. Передайте `false`, чтобы получить весь каталог.
-- `search` — регистронезависимая подстрока по `value`/`label` (например, `"gpt-5"`).
+- `search` — регистронезависимая подстрока по идентификатору модели и `label` (например, `"gpt-5"`, `"claude-opus-5"`).
+- `source` — какой каталог читать: `"ai"` (**по умолчанию**) — платформенный каталог: `GET /api/v1/ai/models` (все медиа-скоупы), объединённый с `GET /api/v1/llm/models`; `"llm"` — только текстовый каталог (тот вид, который видит пикер SPA); `"both"` — явная запись того же объединения, что и `"ai"`. Каталоги upstream **не синхронизированы**: `gpt-6.1-sol` / `gpt-6.1-terra` есть только в `llm`, а `deepseek-r1`, `gemini-3.7-flash`, `grok-4.6` включены для текста, но помечены неактивными в `ai`. Поэтому платформенный каталог (и `"ai"`, и `"both"`) содержит обе половины: в общем каталоге `gpt-6.1-sol` присутствует, а из текстовых видны и те модели, что помечены неактивными в `ai`.
+
+Поле `value` — всегда идентификатор модели (в текстовом каталоге это `id`). Для строк из LLM-каталога дополнительно приходит объект `llm` с `context_window`, `default_max_tokens`, `capabilities`, `supported_tools`, `min_subscription`.
 
 Пример:
 
@@ -325,6 +330,7 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 {
   "name": "list-models",
   "arguments": {
+    "source": "ai",
     "scope": "text",
     "ai_name": "chatgpt",
     "search": "gpt-5"
@@ -352,7 +358,8 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 | `delete-chat` | Удалить чат без возможности восстановления (`DELETE /api/v1/chats/{chat_id}`); деструктивно | `chat_id`* |
 | `toggle-chat-favorite` | Переключить флаг «избранное» чата: каждый вызов инвертирует состояние; проверить через `list-chats` | `chat_id`* |
 | `toggle-message-favorite` | Переключить флаг «избранное» сообщения: каждый вызов инвертирует состояние; читать через `get-favorite-messages` | `chat_id`*, `message_id`* |
-| `get-llm-limits` | Текущие LLM-лимиты (окна 6h / 7d) | — |
+| `get-llm-limits` | Текущие LLM-лимиты (окна 6h / 7d) + план подписки `plan` | — |
+| `get-llm-reset-price` | Квота на сброс LLM-окон (`available`, `price_tokens`, `used_percent`, `reason`) | — |
 
 > ⭐ **`ask`** — главный инструмент для stateless Q&A. Возвращает `chat_uuid` для последующих уточнений через `send-message` + `wait-for-response`.
 >
@@ -537,6 +544,28 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 }
 ```
 
+### Агенты (AI agents)
+
+Новая upstream-поверхность `agents/*` (prod-SPA bundle `1793202992`). Список агентов
+смешивает собственные агенты аккаунта и платформенные (`editable: false`).
+
+| Инструмент | Описание | Параметры |
+|---|---|---|
+| `list-agents` | Список агентов + квота (`{agents, agent_limit, agent_count, can_create_more}`) | — |
+| `get-agent` | Полная карточка агента (`system_prompt`, `style_prompt`, `model_name`, `enabled_tools`, `default_models`, `files[]`) | `agent_id`* (UUID) |
+| `create-agent` | Создать агента (`multipart/form-data`) | `name`*, `system_prompt`*, `model_name`*, `description?`, `style_prompt?`, `use_chat_history?`, `enabled_tools?`, `default_models?` |
+| `update-agent` | Изменить агента (`PUT /api/v1/agents/update/{id}`) | `agent_id`* (числовой `id`), `name?`, `description?`, `system_prompt?`, `style_prompt?`, `model_name?`, `use_chat_history?`, `enabled_tools?`, `default_models?` |
+| `delete-agent` | Удалить агента без возможности восстановления | `agent_id`* (UUID) |
+| `list-agent-files` | Файлы, прикреплённые к агенту | `agent_id`* (UUID) |
+| `add-agent-files` | Прикрепить файлы к агенту (`multipart/form-data`, поле `files`) | `agent_id`* (UUID), `files`* (≤ 10) |
+| `delete-agent-files` | Открепить файлы от агента (`{file_ids: [...]}`) | `agent_id`* (UUID), `file_ids`* (≥ 1) |
+
+> `agent_id` — это UUID (`agent_id` в ответе `list-agents`), а `update-agent` ждёт
+> **числовой** `id` из `get-agent`. У `add-agent-files` тот же LFI-риск, что и у
+> `upload-files`: `path` читает файл на машине сервера и запрещён на HTTP-транспорте.
+> Чат с агентом идёт по WebSocket (`agents/chat/{agent_id}`) — MCP-сервер его не
+> реализует, используйте SSE-текст-флоу.
+
 ### Тарифы и цены
 
 | Инструмент | Описание | Параметры |
@@ -548,7 +577,7 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 
 | Инструмент | Описание | Параметры |
 |---|---|---|
-| `list-trend-categories` | Категории домашней ленты (`{categories: [{slug, name}]}`) | — |
+| `list-trend-categories` | Категории домашней ленты (`{categories: [{id, slug, title}]}`) | — |
 | `list-trend-tags` | Теги домашней ленты (часто пусто) | — |
 | `list-events` | Лента событий (промо, milestones) | `page?`, `page_size?` |
 
@@ -570,6 +599,7 @@ MCP_HTTP_TOKEN="your-mcp-secret" npx syntx-ai-mcp --transport http --http-port 8
 - **HTTP-транспорт** по умолчанию слушает только `127.0.0.1` и **не имеет аутентификации**, пока не задан `MCP_HTTP_TOKEN`. Защита от DNS-rebinding обеспечивается Host/Origin allow-list (всегда включён). Для запуска вне loopback **обязательно** задайте `MCP_HTTP_TOKEN` и оградите порт файрволом/реверс-прокси.
 - **Stateless HTTP = single-user loopback.** `set-token` меняет токен для всего процесса, поэтому HTTP-транспорт не предназначен для многопользовательского использования — один клиент установит токен, общий для всех.
 - **`transcribe` с `path`** разрешён только при stdio-транспорте; при HTTP отклоняется (защита от произвольного чтения файлов сервера — LFI).
+- **Аргументы инструментов валидируются по объявленной JSON-схеме** (ajv). Неверный `enum`, отсутствующий обязательный параметр или лишний аргумент отклоняются до вызова хендлера — хендлер никогда не получает «мусор» и не может молча подменить значение по умолчанию.
 - Не передавайте `MCP_HTTP_TOKEN` в query-параметрах URL — только в заголовке `Authorization`.
 
 ---

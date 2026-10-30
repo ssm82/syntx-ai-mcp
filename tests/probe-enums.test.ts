@@ -13,7 +13,7 @@ interface CaptchaActions {
 interface Snapshot {
   captured_at: string;
   schema_version: number;
-  ai_services: { count: number; by_scope: Record<string, string[]> };
+  ai_services: { count: number; by_scope: Record<string, string[]>; scopes: string[] };
   llm_models_count: number;
   ai_models_count: number;
   ai_models_with_get_cost_params: number;
@@ -33,7 +33,7 @@ function load(): Snapshot {
 
 test('probe-enums snapshot is structurally valid', () => {
   const s = load();
-  assert.equal(s.schema_version, 1, 'schema_version must be 1');
+  assert.equal(s.schema_version, 2, 'schema_version must be 2');
   assert.ok(typeof s.captured_at === 'string' && s.captured_at.length > 0, 'captured_at required');
   assert.ok(!Number.isNaN(Date.parse(s.captured_at)), `captured_at not parseable: ${s.captured_at}`);
   assert.ok(Date.parse(s.captured_at) <= Date.now(), 'captured_at is in the future');
@@ -49,6 +49,15 @@ test('probe-enums snapshot is structurally valid', () => {
       assert.equal(typeof name, 'string', `by_scope.${scope} contains non-string: ${name}`);
     }
   }
+  // The scope partition is derived from the live catalog, so the declared
+  // scope list and the partition keys must agree.
+  assert.deepEqual(
+    [...s.ai_services.scopes].sort(),
+    Object.keys(s.ai_services.by_scope).sort(),
+    'ai_services.scopes must match the by_scope keys',
+  );
+  const total = Object.values(s.ai_services.by_scope).reduce((n, arr) => n + arr.length, 0);
+  assert.equal(total, s.ai_services.count, 'by_scope partition must cover every service');
 });
 
 test('probe-enums enum strings are non-empty and unique', () => {

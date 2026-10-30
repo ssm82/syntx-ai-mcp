@@ -6,8 +6,9 @@ import {
 
 import { createMcpContext, withRequestContext } from './context';
 import { allTools } from './tools';
-import { toMcpError } from './errors';
+import { toMcpError, toolError } from './errors';
 import { logSecurityEvent } from './security-log';
+import { validateToolArgs } from './validation';
 import type { McpServerConfig } from '../config';
 import type { McpContext, SyntxToolExtra } from './registry';
 
@@ -77,6 +78,15 @@ export function createMcpServer(
         ),
         `tool:${name}`,
       );
+    }
+    // Single validation entry point: the arguments are checked against the
+    // schema the server advertised in `tools/list` before any handler runs.
+    // Without it every `enum`, `required` list and `additionalProperties:
+    // false` was advisory only — a client could pass an unknown enum value
+    // and the handler would silently fall back to a default.
+    const validation = validateToolArgs(name, tool.inputSchema, args ?? {});
+    if (!validation.ok) {
+      return toolError(validation.message);
     }
     try {
       // Enrich the shared context with progress / log callbacks bound to this

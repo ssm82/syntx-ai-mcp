@@ -9,7 +9,8 @@ export const discoveryTools: SyntxTool[] = [
     name: 'list-trend-categories',
     description:
       'List top-level feed categories used by the home feed. Wraps `syntx.trends.categories`. ' +
-      'Hits `GET /api/v1/trends/categories`. Returns `{categories: [{slug, name}]}`.',
+      'Hits `GET /api/v1/trends/categories`. Returns `{categories: [{id, slug, title}]}` — ' +
+      'the display label is `title` (`name` was the old key and is no longer sent).',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: wrapSdk('list-trend-categories', async (_args, ctx) => ctx.syntx.trends.categories()),
   },

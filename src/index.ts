@@ -7,7 +7,7 @@ export { SyntxAPIError, SyntxAuthError, SyntxCaptchaRequiredError, SyntxAbortErr
 export * from './types';
 export { collectCompletedObjects } from './resources/chats';
 
-export { AIResource } from './resources/ai';
+export { AIResource, normalizeLlmModel, mergeModelCatalogs } from './resources/ai';
 export { UserResource, toPublicUser } from './resources/user';
 export {
   ChatsResource,
@@ -27,6 +27,7 @@ export { AudioResource, type ListVoiceExamplesParams, type GenerateAudioParams }
 export { VideoResource, type GenerateVideoParams } from './resources/video';
 export { AppResource } from './resources/app';
 export { LlmResource } from './resources/llm';
+export { AgentsResource } from './resources/agents';
 export type {
   LlmLimits,
   LlmLimitWindow,
@@ -35,6 +36,8 @@ export type {
   LlmModel,
   LlmGenerateParams,
   LlmListModelsParams,
+  LlmResetPrice,
+  LlmResetPriceWindow,
 } from './types';
 
 // ── MCP server layer ────────────────────────────────────────────────────────
@@ -46,6 +49,7 @@ export type {
   SyntxToolResult,
 } from './mcp/registry';
 export { allTools } from './mcp/tools';
+export { validateToolArgs, getToolValidator } from './mcp/validation';
 
 // ── Config & transport ──────────────────────────────────────────────────────
 export { loadConfig, DEFAULT_CONFIG, ENV_KEYS } from './config';

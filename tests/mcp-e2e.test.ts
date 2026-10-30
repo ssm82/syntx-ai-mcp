@@ -330,3 +330,47 @@ test('MCP server: every new tool is registered and call works end-to-end', async
   const cost = urlOf('/api/v1/prompt-enhancer/cost')!;
   assert.equal(cost.headers['authorization'], 'Bearer test-token');
 });
+
+// Argument validation is enforced at the server's single call-tool entry
+// point: the arguments are checked against the schema the server
+// advertised in `tools/list` before the handler runs.
+test('MCP server: invalid tool arguments are rejected before the handler runs', async (t) => {
+  const api = await startFakeApi();
+  const srv = await startMcpServer(api.baseURL, 'test-token');
+  t.after(() => srv.close());
+  t.after(() => api.close());
+
+  const textOf = (result: any): string => {
+    const block = result.content?.[0];
+    if (block?.type !== 'text') throw new Error('no text block');
+    return block.text;
+  };
+
+  // An unknown enum value.
+  const badEnum = await srv.client.callTool({
+    name: 'list-tariffs',
+    arguments: { period: 'weekly' },
+  });
+  assert.equal(badEnum.isError, true);
+  assert.match(textOf(badEnum), /must be one of: "monthly", "annual"/);
+
+  // An undeclared property.
+  const badProperty = await srv.client.callTool({
+    name: 'list-tariffs',
+    arguments: { period: 'monthly', period_typo: 'monthly' },
+  });
+  assert.equal(badProperty.isError, true);
+  assert.match(textOf(badProperty), /"period_typo": unexpected property/);
+
+  // A missing required property.
+  const missing = await srv.client.callTool({ name: 'rename-chat', arguments: {} });
+  assert.equal(missing.isError, true);
+  assert.match(textOf(missing), /"chat_id": is required/);
+
+  // None of the rejected calls reached the API.
+  assert.equal(
+    api.captured.filter((c) => c.url.startsWith('/api/v1/plans/tariffs')).length,
+    0,
+    'a rejected call must not reach the API',
+  );
+});

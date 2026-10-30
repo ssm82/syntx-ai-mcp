@@ -23,6 +23,7 @@ export type SecurityEventKind =
   | 'transport.auth.missing'
   | 'transport.sse.limit'
   | 'upload-files.path.rejected'
+  | 'add-agent-files.path.rejected'
   | 'transcribe.mime.rejected'
   | 'auth-mutation.rejected'
   | 'auth-mutation.completed';

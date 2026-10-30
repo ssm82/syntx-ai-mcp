@@ -60,6 +60,7 @@ test('LlmResource.getLimits hits /api/v1/llm/limits with bearer token', async ()
     {
       status: 200,
       body: {
+        plan: 'pro',
         window_6h: { percent_left: 80, started_at: future, expires_at: futureLater },
         window_7d: { percent_left: 95, started_at: past7dStart, expires_at: future7d },
       },
@@ -75,9 +76,22 @@ test('LlmResource.getLimits hits /api/v1/llm/limits with bearer token', async ()
     'Bearer tok',
   );
   assert.deepEqual(result, {
+    plan: 'pro',
     window_6h: { percent_left: 80, started_at: future, expires_at: futureLater },
     window_7d: { percent_left: 95, started_at: past7dStart, expires_at: future7d },
   });
+
+  restore();
+});
+
+test('LlmResource.getLimits reports plan as null when the server omits it', async () => {
+  const { restore } = installFetchMock([
+    { status: 200, body: { window_6h: null, window_7d: null } },
+  ]);
+
+  const result = await new LlmResource(makeClient()).getLimits();
+
+  assert.equal(result.plan, null);
 
   restore();
 });
