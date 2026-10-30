@@ -13,7 +13,7 @@ import type { McpServerConfig } from '../config';
 import type { McpContext, SyntxToolExtra } from './registry';
 
 const SERVER_NAME = 'syntx-ai-mcp';
-const SERVER_VERSION = '0.3.0';
+const SERVER_VERSION = '0.4.0';
 
 /**
  * Build a configured MCP {@link Server} with all syntx-ai-mcp tools registered.

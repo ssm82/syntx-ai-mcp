@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires syntx.ai bearer JWT (set via set-token tool). Targets Kilo / Claude Code agents with the syntx-ai-mcp MCP server installed.
 metadata:
   author: syntx-ai-mcp contributors
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # syntx-ai-mcp Usage
