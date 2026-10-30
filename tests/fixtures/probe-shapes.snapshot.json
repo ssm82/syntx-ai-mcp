@@ -1,0 +1,51 @@
+{
+  "captured_at": "2026-10-13T07:00:00Z",
+  "schema_version": 1,
+  "endpoints": {
+    "list-chats": {
+      "path": "GET /api/v1/chats",
+      "method": "GET",
+      "response_top_level_keys": ["chats", "pagination"],
+      "response_nested_keys": {
+        "pagination.page": "number",
+        "pagination.page_size": "number"
+      }
+    },
+    "list-projects": {
+      "path": "GET /api/v1/folders/{scope}/list",
+      "method": "GET",
+      "response_top_level_keys": ["folders", "pagination"],
+      "response_nested_keys": {
+        "pagination.page": "number",
+        "pagination.page_size": "number"
+      }
+    },
+    "list-ai-services": {
+      "path": "GET /api/v1/ai",
+      "method": "GET",
+      "response_top_level_keys": [],
+      "response_nested_keys": {},
+      "note": "array at root, not an envelope object"
+    },
+    "get-llm-limits": {
+      "path": "GET /api/v1/llm/limits",
+      "method": "GET",
+      "response_top_level_keys": ["window_6h", "window_7d"],
+      "response_nested_keys": {
+        "window_6h.percent_left": "number",
+        "window_6h.started_at": "string|null",
+        "window_6h.expires_at": "string|null",
+        "window_7d.percent_left": "number",
+        "window_7d.started_at": "string|null",
+        "window_7d.expires_at": "string|null"
+      }
+    },
+    "get-balance": {
+      "path": "GET /api/v1/user/balance",
+      "method": "GET",
+      "response_top_level_keys": ["balance", "currency"],
+      "response_nested_keys": {}
+    }
+  },
+  "notes": "v1 shape baseline. Captured 2026-10-13. The drift class this exists to surface: an endpoint returns 200 with a wrong top-level shape (e.g., `folders/{scope}/list` returning a `Folder[]` directly instead of `{folders, pagination}`). When `PROBE_SHAPES_LIVE=1` is set, tests/probe-shapes.test.ts hits the live API and asserts each top-level key matches this snapshot. The default `npm test` path does only structural validation of this file, so CI does not require a bearer token."
+}

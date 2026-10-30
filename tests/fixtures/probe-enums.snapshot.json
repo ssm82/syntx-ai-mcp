@@ -1,0 +1,46 @@
+{
+  "captured_at": "2026-10-13T07:00:00Z",
+  "schema_version": 1,
+  "ai_services": {
+    "count": 44,
+    "by_scope": {
+      "text": ["chatgpt", "claude", "deepseek", "gemini", "qwen", "grok", "perplexity"],
+      "image": [
+        "midjourney",
+        "flux",
+        "sora-images",
+        "banana",
+        "ideogram",
+        "stable-diffusion",
+        "recraft",
+        "runway-frames",
+        "seedream",
+        "higgsfield-soul",
+        "higgsfield",
+        "kling-kolors",
+        "kling"
+      ],
+      "video": ["topaz_astra", "seedance", "beeble"],
+      "audio": ["suno", "elevenlabs"],
+      "upscale": ["magnific", "topaz_ai"]
+    }
+  },
+  "llm_models_count": 43,
+  "ai_models_count": 215,
+  "ai_models_with_get_cost_params": 103,
+  "enums": {
+    "plans_tariffs_period": ["monthly", "annual"],
+    "ref_list_filter": ["new", "active"],
+    "chats_scope": ["text", "image", "audio", "video"],
+    "message_direction": ["older", "newer"],
+    "captcha_actions": {
+      "auth/email/send-otp": "register",
+      "design/generate": "generate",
+      "video/generate": "generate",
+      "audio/generate": "generate",
+      "llm/generate": "generate",
+      "prompt-enhancer/(enhance|generate)(/start)?": "generate"
+    }
+  },
+  "notes": "v1 baseline. Regenerate via `npm run probe:enums:write` (scripts/probe-enums.ts) when drift is suspected. Captured_at is bumped on every successful probe-write; the dry-run path compares against this file and exits 0 on no diff."
+}

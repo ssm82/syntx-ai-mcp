@@ -42,7 +42,9 @@
     "test": "tsx --test tests/*.test.ts",
     "start": "node dist/bin/cli.js",
     "start:stdio": "node dist/bin/cli.js --transport stdio",
-    "start:http": "node dist/bin/cli.js --transport http"
+    "start:http": "node dist/bin/cli.js --transport http",
+    "probe:enums": "tsx scripts/probe-enums.ts",
+    "probe:enums:write": "tsx scripts/probe-enums.ts --write"
   },
   "keywords": [
     "syntx",
